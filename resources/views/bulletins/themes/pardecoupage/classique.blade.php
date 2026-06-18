@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: "Century Gothic", sans-serif; font-size: 11px; color: #111;margin-top: -10px }
+        table { width: 100%; border-collapse: collapse; margin: 10px auto; }
+        th, td { border: 1px solid #000; padding: 6px; text-align: center; }
+        .title { font-weight: bold; text-transform: uppercase; margin-top: 6px; }
+        .page-break { page-break-after: always; }
+        .header-bulletin { display: flex; align-items: center; text-align: center; margin-bottom: 10px; }
+        .header-bulletin .gauche { text-align: left; width: 30%; }
+        .header-bulletin .centre { text-align: center; flex: 1; }
+        .header-bulletin .droite { text-align: right; width: 30%; }
+        .btn-actions { margin: 15px; display: flex; gap: 10px; }
+        .btn { padding: 8px 15px; font-size: 12px; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; text-decoration: none; color: #fff; }
+        .btn-retour { background-color: #6c757d; }
+        .btn-print { background-color: #000000; }
+        @media print { .btn-actions { display: none; } }
+    </style>
+</head>
+<body>
+
+<div class="btn-actions">
+    <a href="{{ url()->previous() }}" class="btn btn-retour">⬅ Retour</a>
+    <button onclick="window.print()" class="btn btn-print">🖨️ Imprimer</button>
+</div>
+
+@foreach($allBulletins as $data)
+    @php
+        $inscription = $data['inscription'];
+        $evaluations = $data['evaluations'];
+        $rangsMatieres = $data['rangsMatieres'];
+        $statsMatieres = $data['statsMatieres'];
+        $effectif = $data['effectif'];
+    @endphp
+
+    <div class="page-break">
+        <div class="header-bulletin">
+            <div class="gauche">
+                <p>MINISTERE DE L' EDUCATION NATIONALE</p>
+                <p style="margin-top: -2px">DRE GRAND LOME / IESG-AGOE-NYIVE</p>
+                <p style="font-family: 'Arial Black', sans-serif; font-size: 15px; color: #000000; margin: -7px 0;">
+                    <strong>{{ $ecole?->nom }}</strong>
+                </p>
+                <p style="">{{ $ecole?->adresse }}</p>
+                <p style="margin-top: -3px">{{ $ecole?->telephone }}</p>
+                <p style="margin-top: -3px">{{ $ecole?->email }}</p>
+            </div>
+            <div class="centre">
+                @if($ecole?->logo && file_exists(public_path('storage/'.$ecole->logo)))
+                    <img src="{{ asset('storage/'.$ecole->logo) }}" width="100">
+                @endif
+            </div>
+            <div class="droite" style="text-align: right;">
+                <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px;">
+                    <div>
+                        <p style="margin: 0; font-weight: bold;">REPUBLIQUE TOGOLAISE</p>
+                        <p style="margin: -2px;">Travail - Liberté - Patrie</p>
+                    </div>
+                </div>
+
+                <table style="
+    width:70%;
+    border-collapse:collapse;
+    font-size:11px;
+    margin-right:-5px;   /* 👉 aligne à droite */
+">
+                    <tr>
+                        <td style="border:1px solid #000; padding:4px; text-align:left;">
+                            <strong>Année</strong>
+                        </td>
+                        <td style="border:1px solid #000; padding:4px; text-align:center;">
+                            {{ $inscription->annee->nom ?? '-' }}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="border:1px solid #000; padding:4px; text-align:left;">
+                            <strong>Classe</strong>
+                        </td>
+                        <td style="border:1px solid #000; padding:4px; text-align:center;">
+                            {{ $inscription->classe->nom ?? '-' }}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="border:1px solid #000; padding:4px; text-align:left;">
+                            <strong>Effectif</strong>
+                        </td>
+                        <td style="border:1px solid #000; padding:4px; text-align:center;">
+                            {{ $effectif ?? '-' }}
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+
+        <h1 class="title" style="text-align: center;">BULLETIN DE NOTES DU </h1>
+        <h2 style="text-align: center;color: #09090b;font-size: x-large;margin-top: -15px"> {{ strtoupper($decoupage->nom) }}</h2>
+        <!-- Ligne Nom / Sexe -->
+
+
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;margin-top: -10px">
+
+            <!-- Colonne gauche : Nom + Prénom -->
+            <div style="display:flex; flex-direction:column; justify-content:center; flex:1;">
+                <h2 style="margin:2px; font-size:18px; ">
+                    Nom : <span style="font-weight:700;">{{ strtoupper($inscription->eleve->nom) }}</span>
+                </h2>
+                <h2 style=" font-size:16px;  margin-top:4px;">
+                    Prénom : <span style="font-weight:600;">{{ ucfirst($inscription->eleve->prenom) }}</span>
+                </h2>
+                <h2 style=" font-size:16px; margin-top:4px;">
+                    Matricule : <span style="font-weight:400;">{{$inscription->eleve->id}}</span>
+                </h2>
+            </div>
+
+            <!-- Colonne droite : Sexe + Statut -->
+            <div style="display:flex; flex-direction:column; justify-content:center; align-items:flex-end; flex:1;">
+                <p style="margin:5px; font-size:14px;">
+                    Sexe : <span style="font-weight:600;">{{ $inscription->eleve->sexe ?? '-' }}</span>
+                </p>
+                <p style="margin:5px; font-size:14px; margin-top:4px;">
+                    Statut :
+                    @if($inscription->status_eleve === 'Redoublant')
+                        @if($inscription->eleve->sexe === 'F')
+                            <span style="font-weight:700;">Redoublante</span>
+                        @else
+                            <span style="font-weight:700;">Redoublant</span>
+                        @endif
+                    @else
+                        @if($inscription->eleve->sexe === 'F')
+                            <span style="font-weight:700;">Nouvelle</span>
+                        @else
+                            <span style="font-weight:700;">Nouveau</span>
+                        @endif
+                    @endif
+                </p>
+            </div>
+
+        </div>
+
+
+
+        <table>
+            <thead>
+            <tr >
+                <th rowspan="2">Disciplines</th>
+                <th colspan="{{ $maxDevoirs + 7 }}">Élève</th>
+                <th colspan="2">Avis</th>
+            </tr>
+            <tr >
+                {{-- Colonnes devoirs --}}
+                @for($i = 1; $i <= $maxDevoirs; $i++)
+                    <th>Not.{{ $i }}</th>
+                @endfor
+
+                <th>Moy.D</th><th>Comp.</th><th>Moy.T</th><th>Coef</th><th>M.Coef</th><th>Rang</th><th>Appréciation</th><th>Prof</th>
+                <th>Sign.</th>
+            </tr>
+            </thead>
+            <tbody>
+            @php
+                $totalCoef = 0;
+                $totalCoefNotes = 0;
+            @endphp
+
+            @foreach($data['notesParMatiere'] as $matiereId => $note)
+
+                @php
+                    $matiere = $note['matiere'];
+                    $coef    = $note['coef'];
+
+                    // Notes (0 si absent)
+                    $noteClas = $note['devoir'] ?? 0;
+                    $noteComp = $note['compo'] ?? 0;
+
+                    $moyT     = $note['moyenne'];
+                    $mCoef    = $note['moycoef'];
+
+                    $totalCoef += $coef;
+                    $totalCoefNotes += $mCoef;
+
+                    $prof = $matiere->affectations
+                                ->where('classe_id', $inscription->classe->id)
+                                ->first()?->enseignant;
+
+                    $app = match(true){
+                        $moyT>=18 => "Excellent",
+                        $moyT>=16 => "T.bien",
+                        $moyT>=14 => "Bien",
+                        $moyT>=12 => "A.Bien",
+                        $moyT>=10 => "Passable",
+                        $moyT>=8  => "Insuffisant",
+                        $moyT>=6  => "T.Insuffisant",
+                        default   => "Médiocre",
+                    };
+                   $nom = $matiere->nom ?? '';
+                $mots = preg_split('/\s+/', trim($nom));
+
+                if (count($mots) > 2) {
+                    // Créer le sigle (première lettre de chaque mot)
+                    $sigle = $matiere->sigle;
+                } else {
+                    $sigle = $nom;
+                }
+                @endphp
+
+                <tr>
+                    <td style="text-align:left;">{{ $sigle }}</td>
+
+                    {{-- Affichage des devoirs dynamiques --}}
+                    @for($i = 0; $i < $maxDevoirs; $i++)
+                        <td>
+                            {{ $note['devoirs'][$i] ?? '-' }}
+                        </td>
+                    @endfor
+                    <td>{{ number_format($note['moy_devoirs'], 2) }}</td>
+                    <td>{{ $noteComp }}</td>
+
+                    <td>{{ number_format($moyT,2) }}</td>
+
+                    <td>{{ $coef }}</td>
+
+                    <td>{{ number_format($mCoef,2) }}</td>
+
+                    <td>{{ $rangsMatieres[$matiereId] ?? '-' }}</td>
+
+                    <td>{{ $app }}</td>
+
+                    <td>{{ $prof?->nom ?? '-' }}</td>
+
+
+                    <td> </td>
+                </tr>
+
+            @endforeach
+
+            <tr style="font-weight:bold;">
+                <td colspan="{{ $maxDevoirs +  4}}" style="text-align:left;">TOTAL</td>
+                <td>{{ $totalCoef }}</td>
+                <td>{{ number_format($totalCoefNotes,2) }}</td>
+                <td colspan="7"></td>
+            </tr>
+
+            </tbody>
+
+        </table>
+
+        <h4 style="text-align:center;margin-top:10px;"><b>Récapitulatif</b></h4>
+        <table border="1" style="margin-top: -5px">
+            <thead>
+            <tr>
+                <th colspan="7" style="background-color: rgba(195,195,195,0.63)">Resultats</th>
+                <th colspan="3" style="background-color: #fa8484">Sanctions</th>
+                <th colspan="2" style="background-color: #faff7a">Presence</th>
+            </tr>
+            <tr>
+                <th>Periode</th>
+                <th>Moy. Élève</th>
+                <th>Rang</th>
+                <th>Appréciation</th>
+                <th>M. Classe</th>
+                <th>M. Forte</th>
+                <th>M. Faible</th>
+
+                <th>Averti.</th>
+                <th>Exclu.</th>
+                <th>Conseil</th>
+
+                <th>Absence</th>
+                <th>Retard</th>
+            </tr>
+            </thead>
+            <tbody>
+            @php
+                // Normalisation
+                $nomDecoupage = strtolower(trim($decoupage->nom));
+
+                // Détermination si on est en trimestre ou semestre
+                $isTrimestre = str_contains($nomDecoupage, 'trimestre');
+                $isSemestre  = str_contains($nomDecoupage, 'semestre');
+
+                // Valeur max à afficher
+                $maxPeriode = 1;
+                $dernierDecoupage = false;
+
+                if($isTrimestre) {
+                    if(str_contains($nomDecoupage, '2')) $maxPeriode = 2;
+                    elseif(str_contains($nomDecoupage, '3')) {
+                        $maxPeriode = 3;
+                        $dernierDecoupage = true; // 3ème trimestre = dernier
+                    }
+
+                    $ordrePeriodes = [
+                        '1er Trimestre' => 1,
+                        '2eme Trimestre' => 2,
+                        '3eme Trimestre' => 3,
+                    ];
+                }
+                elseif($isSemestre) {
+                    if(str_contains($nomDecoupage, '2')) {
+                        $maxPeriode = 2;
+                        $dernierDecoupage = true; // 2ème semestre = dernier
+                    }
+
+                    $ordrePeriodes = [
+                        '1er Semestre' => 1,
+                        '2eme Semestre' => 2,
+                    ];
+                }
+            @endphp
+
+            {{-- Lignes des périodes normales --}}
+            @foreach($data['recap'] as $ligne)
+                @php
+                    $ordre = $ordrePeriodes[$ligne->periode] ?? null;
+                @endphp
+
+                @if($ordre && $ordre <= $maxPeriode)
+                    <tr>
+                        <td>{{ $ligne->periode }}</td>
+                        <td style='color:red;font-size:12px'><b>{{ $ligne->moyenne_eleve }}</b></td>
+                        <td><b>{{ $ligne->rang }}</b></td>
+                        <td style='color:red;font-size:12px'>{{ $ligne->appreciation }}</td>
+                        <td>{{ $ligne->moyenne_classe }}</td>
+                        <td>{{ $ligne->moyenne_forte }}</td>
+                        <td>{{ $ligne->moyenne_faible }}</td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                    </tr>
+                @endif
+            @endforeach
+
+            @if(isset($data['recap_annuelle']) && $data['recap_annuelle'])
+                <tr style="background-color:#f0f0f0; font-weight:bold;">
+                    <td>Moyenne Annuelle</td>
+                    <td>{{ $data['recap_annuelle']['moyenne'] }}</td>
+                    <td>{{ $data['recap_annuelle']['rang'] ?? '-' }}</td>
+                    <td>{{ $data['recap_annuelle']['appreciation'] }}</td>
+                </tr>
+            @endif
+            </tbody>
+        </table>
+
+        <div style="margin-top:10px;">
+            <strong>Decision du Conseil :</strong>
+        </div>
+        <div style="margin-top:20px;display:flex;justify-content:space-between;align-items:flex-start;">
+
+            <div>
+                <p>Prof. Titulaire</p>
+
+                @php
+                    // Récupération du titulaire pour la classe et l'année courante
+                    $titulaire = $inscription->classe->titulaire; // pas de ->first() ici
+                    $enseignantTitulaire = $titulaire ? $titulaire->enseignant : null;
+                @endphp
+
+                @if($enseignantTitulaire)
+                    <p style="margin-top:50px;"><strong>{{ $enseignantTitulaire->nom }} {{ $enseignantTitulaire->prenom }}</strong></p>
+                @else
+                    <p class="text-danger" style="margin-top:50px;"><strong>Non défini</strong></p>
+                @endif
+            </div>
+
+            <!-- Tableau central -->
+
+
+
+            <!-- Directeur -->
+            <div style="text-align:right;">
+                <p>Directeur</p>
+                <p style="margin-top:50px;"><b>{{ $ecole?->directeur }}</b></p>
+            </div>
+
+        </div>
+
+        <hr>
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span>{{ now()->format('d/m/Y H:i') }}</span>
+
+            <div style="font-size:12px;text-align:center;color:darkred;max-width:60%;">
+                Ce bulletin est délivré en un seul exemplaire.
+            </div>
+
+            <span style="font-weight:600;">SchoolPlus-V 1.12</span>
+        </div>
+
+    </div>
+@endforeach
+</body>
+</html>
