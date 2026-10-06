@@ -6,6 +6,20 @@
     <title>@yield('title', 'SchoolPlus')</title>
     <link rel="shortcut icon" href="{{asset('dist/img/logo.png')}}" type="image/x-icon">
 
+
+                    <link rel="manifest" href="{{ asset('manifest.json') }}">
+
+                    <meta name="theme-color" content="#007bff">
+
+                    <meta name="mobile-web-app-capable" content="yes">
+
+                    <meta name="apple-mobile-web-app-capable" content="yes">
+
+                    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+
+                    <meta name="apple-mobile-web-app-title" content="SchoolPlus">
+
+
     <!-- Bootstrap CSS -->
     <link href="{{ asset('dist/css/bootstrap.min.css') }}" rel="stylesheet">
     <link href="{{ asset('dist/css/font-awesome.min.css') }}" rel="stylesheet">
@@ -21,11 +35,12 @@
 
 
     <link rel="stylesheet" href="{{ asset('dist/css/dataTables.bootstrap5.min.css') }}">
-
+<link rel="stylesheet" href="{{ asset('dist/css/page-loader.css') }}">
     <!-- Google Fonts (via CDN et non fichier local) -->
 {{--    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,400i,700&display=fallback">--}}
 </head>
-<body class="hold-transition sidebar-mini layout-fixed">
+<body class="hold-transition sidebar-mini layout-fixed layout-footer-fixed">
+    @include('layouts.loader')
 <style>
     /* ===== CONTAINER ===== */
     .pro-breadcrumb {
@@ -269,8 +284,34 @@
 
 <!-- Select2 -->
 <script src="{{ asset('dist/js/select2.min.js') }}"></script>
+<script>
+window.addEventListener('pageshow', function (event) {
 
-<!-- Scripts spécifiques aux pages -->
+    if (event.persisted) {
+        window.location.reload();
+    }
+
+});
+
+
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+            navigator.serviceWorker.register('/service-worker.js')
+                .then(function (registration) {
+                    console.log(
+                        'SchoolPlus Service Worker enregistré :',
+                        registration.scope
+                    );
+                })
+                .catch(function (error) {
+                    console.error(
+                        'Erreur Service Worker SchoolPlus :',
+                        error
+                    );
+                });
+        });
+    }
+</script>
 @stack('scripts')
 
 

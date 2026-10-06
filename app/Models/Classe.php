@@ -20,7 +20,7 @@ class Classe extends Model
         'decoupage_id',
     ];
 
-    // ✅ Une classe appartient à un enseignant
+    // ✅ Une classe appartient à un enseignant si cest niveau primaire
     public function enseignant()
     {
         return $this->belongsTo(Enseignant::class, 'enseignant_id');

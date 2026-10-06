@@ -53,13 +53,18 @@ class EmploiDuTempsController extends Controller
         if (!auth()->check()) {
             return redirect()->route('login')->with('error', 'Veuillez vous connecter pour accéder à cette page.');
         }
-
+$annee_courante = session('annee_id')
+    ? AnneesScolaire::find(session('annee_id'))
+    : AnneesScolaire::where('active', 1)->first();
         $classe = Classe::findOrFail($classeId);
         $heures = HeureCours::orderBy('id')->get();
         $jours = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
         $emplois = EmploiDuTemps::where('classe_id', $classeId)->get();
-        $affectations = Affectation::where('classe_id', $classeId)->with('professeur', 'matiere')->get();
-
+        
+$affectations = Affectation::where('classe_id', $classe->id)
+    ->where('annee_id', $annee_courante->id)
+    ->with(['matiere', 'enseignant'])
+    ->get();
         logAction('Consultation', "Affichage de l’emploi du temps pour la classe {$classe->nom}.");
 
         return view('emplois.show', compact('classe', 'heures', 'jours', 'emplois', 'affectations'));
@@ -71,7 +76,9 @@ class EmploiDuTempsController extends Controller
         if (!auth()->check()) {
             return redirect()->route('login')->with('error', 'Veuillez vous connecter pour accéder à cette page.');
         }
-
+$annee_courante = session('annee_id')
+    ? AnneesScolaire::find(session('annee_id'))
+    : AnneesScolaire::where('active', 1)->first();
         $data = $request->input('emplois', []);
         $changementDetecte = false; // ✅ Indicateur de changement réel
 
@@ -168,13 +175,16 @@ class EmploiDuTempsController extends Controller
         if (!auth()->check()) {
             return redirect()->route('login')->with('error', 'Veuillez vous connecter pour accéder à cette page.');
         }
-
+$annee_courante = session('annee_id')
+    ? AnneesScolaire::find(session('annee_id'))
+    : AnneesScolaire::where('active', 1)->first();
         $classe = \App\Models\Classe::findOrFail($classe_id);
         $heures = \App\Models\HeureCours::all();
 
-        $affectations = \App\Models\Affectation::where('classe_id', $classe->id)
-            ->with(['matiere', 'enseignant'])
-            ->get();
+       $affectations = Affectation::where('classe_id', $classe->id)
+    ->where('annee_id', $annee_courante->id)
+    ->with(['matiere', 'enseignant'])
+    ->get();
 
         $emploisExistants = \App\Models\EmploiDuTemps::where('classe_id', $classe->id)
             ->with(['heure', 'affectation.matiere', 'affectation.enseignant'])
@@ -194,174 +204,271 @@ class EmploiDuTempsController extends Controller
 
         return view('emplois.create', compact('classe', 'heures', 'affectations', 'emploisExistants', 'enseignantsOccupes'));
     }
-    public function generateSmart($classe_id)
-    {
-        // 1️⃣ Vérifie d'abord si l'utilisateur est connecté
-        if (!auth()->check()) {
-            return redirect()->route('login')->with('error', 'Veuillez vous connecter pour accéder à cette page.');
+
+    
+public function generateSmart($classe_id)
+{
+    // 1️⃣ Vérifie d'abord si l'utilisateur est connecté
+    if (!auth()->check()) {
+        return redirect()->route('login')->with('error', 'Veuillez vous connecter pour accéder à cette page.');
+    }
+
+    $annee_courante = session('annee_id')
+        ? AnneesScolaire::find(session('annee_id'))
+        : AnneesScolaire::where('active', 1)->first();
+
+$classe = \App\Models\Classe::with('niveau')
+    ->where('id', $classe_id)
+    ->where('annee_id', $annee_courante->id)
+    ->firstOrFail();
+    
+    $jours  = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi'];
+    $heures = \App\Models\HeureCours::where('libelle', '!=', 'Pause')->get()->values();
+
+    $affectations = Affectation::where('classe_id', $classe->id)
+        ->where('annee_id', $annee_courante->id)
+        ->with(['matiere', 'enseignant'])
+        ->get();
+
+    // 🔹 Nettoyer uniquement l'emploi du temps de l'ANNÉE EN COURS pour cette classe
+    // (avant : where('classe_id', ...)->delete() supprimait aussi les autres années)
+    \App\Models\EmploiDuTemps::where('classe_id', $classe_id)
+        ->whereHas('affectation', function ($q) use ($annee_courante) {
+            $q->where('annee_id', $annee_courante->id);
+        })
+        ->delete();
+
+    // 🔹 Normalisation des noms (pour gérer accents, espaces, tirets)
+    $normalize = fn($string) => preg_replace('/[^a-z]/', '', iconv('UTF-8', 'ASCII//TRANSLIT', strtolower(trim($string))));
+
+    // 🔹 Définition des matières
+    $matieresLourdes = [
+        'Mathématiques',
+        'Physique-Chimie-Technologie',
+        'Sciences de la Vie et de la Terre',
+        'Français',
+        'Histoire-Géographie',
+        'Éducation Civique et Morale',
+    ];
+
+    $matieresFacultatives = [
+        'Dessin',
+        'Arabe',
+        'Anglais',
+        'Musique',
+        'Latin',
+        'Allemand',
+        'Espagnol',
+        'Informatique',
+    ];
+
+    $matiereSport = [
+        'Éducation Physique et Sportive',
+    ];
+
+    // 🔹 Niveau de la classe
+    $niveauNom = $normalize($classe->niveau->nom ?? '');
+    $isCollege = str_contains($niveauNom, 'college');
+    $isLycee   = str_contains($niveauNom, 'lycee');
+
+    $maxHeuresJourProf = $isCollege ? 2 : 3;
+    $maxConsecutives   = $isCollege ? 2 : 3;
+
+    // 🔹 Génération
+    foreach ($affectations as $aff) {
+
+        $heuresRestantes = $aff->heures_attribuees;
+        $matiereNomNorm  = $normalize($aff->matiere->nom);
+
+        // 🔹 Répartition par blocs selon type de matière (inchangé)
+        $repartition = [];
+        if (in_array($matiereNomNorm, $matieresFacultatives) && !in_array($matiereNomNorm, $matiereSport)) {
+            if ($heuresRestantes == 2) $repartition = [1, 1];
+            elseif ($heuresRestantes == 3) $repartition = [2, 1];
+            elseif ($heuresRestantes == 4) $repartition = [2, 2];
+            elseif ($heuresRestantes == 5) $repartition = [2, 2, 1];
+            elseif ($heuresRestantes == 6) $repartition = [2, 2, 2];
+            else $repartition = array_fill(0, $heuresRestantes, 1);
+        } elseif (in_array($matiereNomNorm, $matieresLourdes)) {
+            if ($heuresRestantes % 2 == 0) {
+                $repartition = array_fill(0, $heuresRestantes / 2, 2);
+            } else {
+                $pairs = intdiv($heuresRestantes, 2);
+                $repartition = array_fill(0, $pairs, 2);
+                $repartition[] = 1;
+            }
+        } elseif (in_array($matiereNomNorm, $matiereSport)) {
+            $repartition = array_fill(0, $heuresRestantes, 1);
+        } else {
+            $repartition = array_fill(0, $heuresRestantes, 1);
         }
 
-        $classe = \App\Models\Classe::with('niveau')->findOrFail($classe_id);
-        $jours  = ['Lundi','Mardi','Mercredi','Jeudi','Vendredi'];
-        $heures = \App\Models\HeureCours::where('libelle', '!=', 'Pause')->get();
+        $repIndex = 0;
 
-        $affectations = \App\Models\Affectation::where('classe_id', $classe_id)
-            ->with(['enseignant', 'matiere'])
-            ->get();
+        // 🔹 Fonction de placement réutilisable pour une journée donnée,
+        //    limitée à un index maximum (inclus) : $indexMax
+        //    -> Phase 1 : indexMax = avant-dernière heure (on exclut la 8e heure)
+        //    -> Phase 2 (repli) : indexMax = dernière heure (8e heure autorisée)
+        $placerDansJour = function ($jour, $indexMax) use (
+            &$repIndex, $repartition, $heures, $classe_id, $aff, $matiereNomNorm,
+            $isCollege, $classe, $matiereSport, $maxHeuresJourProf,
+            $maxConsecutives, $annee_courante, $normalize
+        ) {
+            $index = 0;
 
-        // 🔹 Nettoyer ancien emploi du temps
-        \App\Models\EmploiDuTemps::where('classe_id', $classe_id)->delete();
+            while ($index <= $indexMax && $repIndex < count($repartition)) {
 
-        // 🔹 Normalisation des noms (pour gérer accents, espaces, tirets)
-        $normalize = fn($string) => preg_replace('/[^a-z]/', '', iconv('UTF-8', 'ASCII//TRANSLIT', strtolower(trim($string))));
+                $blocSize = $repartition[$repIndex];
 
-        // 🔹 Définition des matières
-        // Matières lourdes (nom ou sigle)
-        $matieresLourdes = [
-            'Mathématiques',                  // Collège
-            'Physique-Chimie-Technologie',    // Collège
-            'Sciences de la Vie et de la Terre', // Collège
-            'Français',                       // Collège
-            'Histoire-Géographie',            // Collège
-            'Éducation Civique et Morale'     // Collège / Lycée
-        ];
-
-// Matières facultatives (nom ou sigle)
-        $matieresFacultatives = [
-            'Dessin',    // Lycée
-            'Arabe',     // Collège
-            'Anglais',   // Collège
-            'Musique',
-            'Latin',
-            'Allemand',
-            'Espagnol',
-            'Informatique'
-        ];
-
-// Matières sport
-        $matiereSport = [
-            'Éducation Physique et Sportive'  // EPS Lycée
-        ];
-
-        // 🔹 Niveau de la classe
-        $niveauNom = $normalize($classe->niveau->nom ?? '');
-        $isCollege = str_contains($niveauNom, 'college');
-        $isLycee   = str_contains($niveauNom, 'lycee');
-
-        $maxHeuresJourProf = $isCollege ? 2 : 3;
-        $maxConsecutives  = $isCollege ? 2 : 3;
-       // dd($affectations);
-        // 🔹 Génération
-        foreach ($affectations as $aff) {
-
-            $heuresRestantes = $aff->heures_attribuees;
-            $matiereNomNorm = $normalize($aff->matiere->nom);
-            echo 'norm :'. $matiereNomNorm;
-            // 🔹 Répartition par blocs selon type de matière
-            $repartition = [];
-            if (in_array($matiereNomNorm, $matieresFacultatives) && !in_array($matiereNomNorm, $matiereSport)) {
-                // facultatives max 2h consécutives
-                if ($heuresRestantes == 2) $repartition = [1,1];
-                elseif ($heuresRestantes == 3) $repartition = [2,1];
-                elseif ($heuresRestantes == 4) $repartition = [2,2];
-                elseif ($heuresRestantes == 5) $repartition = [2,2,1];
-                elseif ($heuresRestantes == 6) $repartition = [2,2,2];
-                else $repartition = array_fill(0,$heuresRestantes,1);
-echo 'facult :'. $aff->matiere->nom;
-            } elseif (in_array($matiereNomNorm, $matieresLourdes)) {
-                // lourdes : minimum 2h consécutives, 1h seule seulement si impaire
-                if ($heuresRestantes % 2 == 0) {
-                    $repartition = array_fill(0, $heuresRestantes / 2, 2);
-
-                    echo 'lourd :'. $aff->matiere->nom;
-                } else {
-                    $pairs = intdiv($heuresRestantes,2);
-                    $repartition = array_fill(0, $pairs, 2);
-                    $repartition[] = 1;
-                    echo 'autre :'. $aff->matiere->nom;
+                // Le bloc dépasserait la limite autorisée pour cette phase/journée
+                if ($index + $blocSize - 1 > $indexMax || $index + $blocSize > $heures->count()) {
+                    break;
                 }
-            } elseif (in_array($matiereNomNorm, $matiereSport)) {
-                $repartition = array_fill(0,$heuresRestantes,1);
-            } else {
-                $repartition = array_fill(0,$heuresRestantes,1);
-            }
-//dd('fin');
-            $repIndex = 0;
 
-            foreach ($jours as $jour) {
-                foreach ($heures as $index => $heure) {
-                    if ($repIndex >= count($repartition)) break;
+                $slotsPourBloc = [];
+                $ok = true;
 
-                    $toPlace = $repartition[$repIndex];
+                for ($k = 0; $k < $blocSize; $k++) {
+                    $pos   = $index + $k;
+                    $heure = $heures[$pos];
 
                     // 🔹 1. Conflit classe
                     if (\App\Models\EmploiDuTemps::where([
-                        'classe_id'=>$classe_id,
-                        'jour'=>$jour,
-                        'heure_cours_id'=>$heure->id
-                    ])->exists()) continue;
-
-                    // 🔹 2. Conflit enseignant
-                    if (\App\Models\EmploiDuTemps::whereHas('affectation', function($q) use($aff){
-                        $q->where('enseignant_id',$aff->enseignant_id);
-                    })->where('jour',$jour)->where('heure_cours_id',$heure->id)->exists()) continue;
-
-                    // 🔹 3. Max heures/jour prof
-                    $heuresJourProf = \App\Models\EmploiDuTemps::whereHas('affectation', function($q) use($aff){
-                        $q->where('enseignant_id',$aff->enseignant_id);
-                    })->where('jour',$jour)->count();
-                    if ($heuresJourProf >= $maxHeuresJourProf) continue;
-
-                    // 🔹 4. EPS jamais après pause
-                    if ($index > 0 && strtolower($heures[$index-1]->libelle)=='pause' && in_array($matiereNomNorm,$matiereSport)) continue;
-
-                    // 🔹 5. Pas d’1h seule pour matière lourde si pair
-                    if (in_array($matiereNomNorm,$matieresLourdes) && $toPlace==1 && $heuresRestantes % 2 == 0) continue;
-
-                    // 🔹 6. Pas de 2h entre 5ᵉ et 6ᵉ heure
-                    if ($index==5) { // 6ᵉ heure
-                        $precedent = \App\Models\EmploiDuTemps::where('classe_id',$classe_id)
-                            ->where('jour',$jour)
-                            ->where('heure_cours_id',$heures[$index-1]->id)
-                            ->with('affectation.matiere')
-                            ->first();
-                        if ($precedent && $normalize($precedent->affectation->matiere->nom)==$matiereNomNorm) continue;
+                        'classe_id' => $classe_id,
+                        'jour' => $jour,
+                        'heure_cours_id' => $heure->id,
+                    ])->exists()) {
+                        $ok = false;
+                        break;
                     }
 
-                    // 🔹 7. Éviter 8ᵉ heure pour collège 5ᵉ/6ᵉ
-                    if ($index==7 && $isCollege && in_array($classe->niveau_id,[5,6])) continue;
-
-                    // 🔹 8. Pas plus de maxConsecutives heures consécutives
-                    $planningJour = \App\Models\EmploiDuTemps::where('classe_id',$classe_id)
-                        ->where('jour',$jour)
-                        ->with('affectation.matiere')->get();
-                    $consec = 0;
-                    for($i=$planningJour->count()-1;$i>=0;$i--){
-                        if ($planningJour[$i]->affectation && $normalize($planningJour[$i]->affectation->matiere->nom)==$matiereNomNorm) $consec++;
-                        else break;
+                    // 🔹 2. Conflit enseignant (année en cours uniquement)
+                    if (\App\Models\EmploiDuTemps::whereHas('affectation', function ($q) use ($aff, $annee_courante) {
+                        $q->where('enseignant_id', $aff->enseignant_id)
+                          ->where('annee_id', $annee_courante->id);
+                    })->where('jour', $jour)->where('heure_cours_id', $heure->id)->exists()) {
+                        $ok = false;
+                        break;
                     }
-                    if ($consec >= $maxConsecutives) continue;
 
-                    // 🔹 9. Placer la matière
-                    \App\Models\EmploiDuTemps::create([
-                        'classe_id'=>$classe_id,
-                        'jour'=>$jour,
-                        'heure_cours_id'=>$heure->id,
-                        'affectation_id'=>$aff->id
-                    ]);
+                    // 🔹 4. EPS jamais après une pause
+                    if ($pos > 0 && strtolower($heures[$pos - 1]->libelle) == 'pause' && in_array($matiereNomNorm, $matiereSport)) {
+                        $ok = false;
+                        break;
+                    }
 
-                    $repIndex++;
-                    $heuresRestantes -= $toPlace;
+                    // 🔹 7. Éviter la 8ᵉ heure pour collège 5ᵉ/6ᵉ (garde-fou même en phase de repli)
+                    if ($pos == 7 && $isCollege && in_array($classe->niveau_id, [5, 6])) {
+                        $ok = false;
+                        break;
+                    }
+
+                    $slotsPourBloc[] = $heure;
                 }
-                if ($repIndex >= count($repartition)) break;
+
+                if (!$ok) {
+                    $index++;
+                    continue;
+                }
+
+                // 🔹 3. Max heures/jour prof (année en cours uniquement)
+                $heuresJourProf = \App\Models\EmploiDuTemps::whereHas('affectation', function ($q) use ($aff, $annee_courante) {
+                    $q->where('enseignant_id', $aff->enseignant_id)
+                      ->where('annee_id', $annee_courante->id);
+                })->where('jour', $jour)->count();
+
+                if ($heuresJourProf + $blocSize > $maxHeuresJourProf) {
+                    $index++;
+                    continue;
+                }
+
+                // 🔹 8. Pas plus de maxConsecutives heures consécutives de la même matière
+                $planningJour = \App\Models\EmploiDuTemps::where('classe_id', $classe_id)
+                    ->where('jour', $jour)
+                    ->with('affectation.matiere')
+                    ->get();
+
+                $consec = 0;
+                for ($i = $planningJour->count() - 1; $i >= 0; $i--) {
+                    if ($planningJour[$i]->affectation && $normalize($planningJour[$i]->affectation->matiere->nom) == $matiereNomNorm) {
+                        $consec++;
+                    } else {
+                        break;
+                    }
+                }
+                if ($consec + $blocSize > $maxConsecutives) {
+                    $index++;
+                    continue;
+                }
+
+                // 🔹 9. Placer le bloc en entier (toutes les heures du bloc)
+                foreach ($slotsPourBloc as $heure) {
+                    \App\Models\EmploiDuTemps::create([
+                        'classe_id' => $classe_id,
+                        'jour' => $jour,
+                        'heure_cours_id' => $heure->id,
+                        'affectation_id' => $aff->id,
+                    ]);
+                }
+
+                $repIndex++;
+                $index += $blocSize;
             }
+        };
+
+        $derniereHeureIndex = $heures->count() - 1; // ex: index 7 pour une 8e heure
+
+        // 🔹 Phase 1 : on parcourt les 5 jours en n'utilisant QUE les heures 1 à 7
+        foreach ($jours as $jour) {
+            if ($repIndex >= count($repartition)) break;
+            $placerDansJour($jour, $derniereHeureIndex - 1);
         }
 
-        logAction('Génération intelligente', "Emploi du temps généré pour {$classe->nom} avec toutes les règles.");
-
-        return redirect()->route('emplois.create',$classe_id)
-            ->with('success','✅ Emploi du temps généré intelligemment avec toutes les règles.');
+        // 🔹 Phase 2 (repli) : s'il reste des blocs non placés, on autorise la 8e heure
+        if ($repIndex < count($repartition)) {
+            foreach ($jours as $jour) {
+                if ($repIndex >= count($repartition)) break;
+                $placerDansJour($jour, $derniereHeureIndex);
+            }
+        }
     }
+
+    return redirect()->back()->with('success', 'Emploi du temps généré avec succès.');
+}
+
+
+    public function reset($classeId)
+{
+    // Vérification connexion
+    if (!auth()->check()) {
+        return redirect()->route('login')
+            ->with('error', 'Veuillez vous connecter pour accéder à cette page.');
+    }
+
+    // Récupération de la classe
+    $classe = Classe::findOrFail($classeId);
+
+    // Année scolaire active
+    $anneeActive = session('annee_id')
+        ? AnneesScolaire::find(session('annee_id'))
+        : AnneesScolaire::where('active', 1)->first();
+
+    if (!$anneeActive) {
+        return back()->with('error', 'Aucune année scolaire active.');
+    }
+
+    // Suppression uniquement des emplois
+    // de cette classe et de cette année scolaire
+    EmploiDuTemps::where('classe_id', $classe->id)
+        ->delete();
+
+    return redirect()
+        ->route('emplois.create', $classe->id)
+        ->with(
+            'success',
+            "L'emploi du temps de la classe {$classe->nom} a été réinitialisé avec succès."
+        );
+}
 
 
 
@@ -385,39 +492,82 @@ echo 'facult :'. $aff->matiere->nom;
     }
 
     public function monEmploi()
-    {
-        // 1️⃣ Vérifie d'abord si l'utilisateur est connecté
-        if (!auth()->check()) {
-            return redirect()->route('login')->with('error', 'Veuillez vous connecter pour accéder à cette page.');
-        }
-
-        $user = auth()->user();
-
-        if ($user->role !== 'professeur') {
-            abort(403, 'Accès non autorisé');
-        }
-
-        $enseignant = Enseignant::where('matricule', $user->matricule)->first();
-
-        if (!$enseignant) {
-            return redirect()->back()->with('error', 'Aucun enseignant associé à votre compte.');
-        }
-
-        $affectations = Affectation::where('enseignant_id', $enseignant->id)->pluck('id');
-
-        if ($affectations->isEmpty()) {
-            return redirect()->back()->with('error', 'Aucune affectation trouvée pour cet enseignant.');
-        }
-
-        $emplois = EmploiDuTemps::with(['classe', 'matiere', 'heure'])
-            ->whereIn('affectation_id', $affectations)
-            ->orderBy('jour')
-            ->get();
-
-        $ecole = Ecole::first();
-
-        logAction('Consultation', "L’enseignant {$enseignant->nom} {$enseignant->prenom} a consulté son emploi du temps personnel.");
-
-        return view('emplois.mon_emploi', compact('emplois', 'enseignant', 'ecole'));
+{
+    // 1️⃣ Vérifie d'abord si l'utilisateur est connecté
+    if (!auth()->check()) {
+        return redirect()->route('login')
+            ->with('error', 'Veuillez vous connecter pour accéder à cette page.');
     }
+
+    // 2️⃣ Vérifie que l'utilisateur est professeur
+    $user = auth()->user();
+
+    if ($user->role !== 'professeur') {
+        abort(403, 'Accès non autorisé');
+    }
+
+    // 3️⃣ Récupère l'année scolaire sélectionnée ou l'année active
+    $anneeActive = session('annee_id')
+        ? AnneesScolaire::find(session('annee_id'))
+        : AnneesScolaire::where('active', 1)->first();
+
+    if (!$anneeActive) {
+        return redirect()->back()
+            ->with('error', 'Aucune année scolaire active.');
+    }
+
+    // 4️⃣ Récupère l'enseignant lié au compte connecté
+    $enseignant = Enseignant::where(
+        'matricule',
+        $user->matricule
+    )->first();
+
+    if (!$enseignant) {
+        return redirect()->back()
+            ->with('error', 'Aucun enseignant associé à votre compte.');
+    }
+
+    // 5️⃣ Récupère uniquement les affectations
+    //    de cet enseignant pour l'année scolaire sélectionnée
+    $affectations = Affectation::where('enseignant_id', $enseignant->id)
+        ->where('annee_id', $anneeActive->id)
+        ->pluck('id');
+
+    if ($affectations->isEmpty()) {
+        return redirect()->back()
+            ->with('error', 'Aucune affectation trouvée pour cet enseignant dans cette année scolaire.');
+    }
+
+    // 6️⃣ Récupère l'emploi du temps correspondant
+    $emplois = EmploiDuTemps::with([
+            'classe',
+            'matiere',
+            'heure'
+        ])
+        ->whereIn('affectation_id', $affectations)
+        ->orderBy('jour')
+        ->get();
+
+    // 7️⃣ Informations de l'école
+    $ecole = Ecole::first();
+
+    // 8️⃣ Journalisation
+    logAction(
+        'Consultation',
+        "L’enseignant {$enseignant->nom} {$enseignant->prenom} " .
+        "a consulté son emploi du temps personnel " .
+        "(année scolaire : {$anneeActive->nom})."
+    );
+
+    // 9️⃣ Retour vers la vue
+    return view(
+        'emplois.mon_emploi',
+        compact(
+            'emplois',
+            'enseignant',
+            'ecole',
+            'anneeActive'
+        )
+    );
+}
 }

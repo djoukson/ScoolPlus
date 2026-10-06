@@ -123,10 +123,13 @@
 
                                 <td class="text-center d-flex justify-content-center gap-1">
                                     <!-- Toggle état -->
-                                    <button type="button" class="btn btn-sm btn-outline-{{ $attr->etat === 'active' ? 'danger' : 'success' }} btn-toggle-etat"
-                                            data-id="{{ $attr->id }}">
-                                        {{ $attr->etat === 'active' ? 'Désactiver' : 'Activer' }}
-                                    </button>
+                                    <form action="{{ route('attributions.toggle', $attr->id) }}" method="POST" class="d-inline toggle-attribution-form">
+                                        @csrf
+                                        @method('PATCH')
+                                        <button type="button" class="btn btn-sm btn-outline-{{ $attr->etat === 'active' ? 'danger' : 'success' }} btn-toggle-etat">
+                                            {{ $attr->etat === 'active' ? 'Désactiver' : 'Activer' }}
+                                        </button>
+                                    </form>
 
                                     <!-- Supprimer -->
                                     <form action="{{ route('attributions.destroy', $attr->id) }}" method="POST" class="d-inline delete-form">
@@ -219,7 +222,6 @@
     <script>
 
         $('.btn-toggle-etat').on('click', function () {
-            const attrId = $(this).data('id');
             const button = $(this);
             const action = button.text().trim();
 
@@ -234,8 +236,7 @@
                 cancelButtonText: 'Annuler'
             }).then((result) => {
                 if (result.isConfirmed) {
-                    // Redirection vers la route toggle
-                    window.location.href = `/attributions/toggle/${attrId}`;
+                    button.closest('form').trigger('submit');
                 }
             });
         });

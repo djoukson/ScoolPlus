@@ -38,9 +38,12 @@
                     {{-- 🔘 Boutons d’action avant le tableau --}}
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <div>
-                            <button type="button" class="btn btn-outline-danger" id="resetAll">
-                                <i class="fas fa-undo-alt me-1"></i> Réinitialiser tout
-                            </button>
+                          <button type="button"
+        class="btn btn-outline-danger"
+        data-toggle="modal"
+        data-target="#resetAllModal">
+    <i class="fas fa-undo-alt me-1"></i> Réinitialiser tout
+</button>
                             <a href="{{ route('emplois.print', $classe->id) }}" target="_blank" class="btn btn-outline-primary">
                                 <i class="fas fa-print"></i> Imprimer
                             </a>
@@ -125,7 +128,75 @@
             </form>
         </div>
     </div>
+{{-- ================= MODAL RÉINITIALISATION ================= --}}
+<div class="modal fade" id="resetAllModal" tabindex="-1" role="dialog"
+     aria-labelledby="resetAllModalLabel" aria-hidden="true">
 
+    <div class="modal-dialog modal-dialog-centered" role="document">
+        <div class="modal-content border-0 shadow-lg rounded-4">
+
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="resetAllModalLabel">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    Réinitialiser l'emploi du temps
+                </h5>
+
+                <button type="button"
+                        class="close text-white"
+                        data-dismiss="modal"
+                        aria-label="Fermer">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+
+            <div class="modal-body text-center py-4">
+
+                <div style="font-size: 50px;" class="text-danger mb-3">
+                    <i class="fas fa-trash-alt"></i>
+                </div>
+
+                <h5 class="mb-3">
+                    Voulez-vous vraiment réinitialiser tout l'emploi du temps ?
+                </h5>
+
+                <p class="text-muted mb-0">
+                    Tous les cours actuellement planifiés pour la classe
+                    <strong>{{ $classe->nom }}</strong> seront supprimés.
+                </p>
+
+                <p class="text-danger mt-2 mb-0">
+                    <strong>Cette action est irréversible.</strong>
+                </p>
+
+            </div>
+
+            <div class="modal-footer justify-content-center">
+
+                <button type="button"
+                        class="btn btn-secondary px-4"
+                        data-dismiss="modal">
+                    <i class="fas fa-times me-1"></i>
+                    Annuler
+                </button>
+
+                <form action="{{ route('emplois.reset', $classe->id) }}"
+                      method="POST"
+                      class="d-inline">
+                    @csrf
+                    @method('DELETE')
+
+                    <button type="submit"
+                            class="btn btn-danger px-4">
+                        <i class="fas fa-trash-alt me-1"></i>
+                        Oui, réinitialiser
+                    </button>
+                </form>
+
+            </div>
+
+        </div>
+    </div>
+</div>
     {{-- === Styles & Script === --}}
     <style>
         .bg-gradient-primary {
@@ -186,12 +257,5 @@
         }
     </style>
 
-    <script>
-        // 🔁 Réinitialiser tous les sélecteurs
-        document.getElementById('resetAll').addEventListener('click', function() {
-            if (confirm('Voulez-vous vraiment réinitialiser tout le tableau ?')) {
-                document.querySelectorAll('select.form-select-sm').forEach(select => select.value = '');
-            }
-        });
-    </script>
+
 @endsection

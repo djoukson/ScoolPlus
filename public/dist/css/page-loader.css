@@ -1,0 +1,41 @@
+:root {
+  --pl-a: #6dd5fa;
+  --pl-b: #2b8ad6;
+  --pl-h: 3px;
+}
+
+/* Barre fixe en haut : ne couvre rien, ne capte aucun clic */
+#pl {
+  position: fixed; top: 0; left: 0; right: 0;
+  height: var(--pl-h);
+  z-index: 99999;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity .35s ease .1s;
+}
+#pl.is-done { opacity: 0; }
+
+.pl-fill {
+  position: relative;
+  height: 100%; width: 100%;
+  transform-origin: left center;
+  transform: scaleX(0);
+  background: linear-gradient(90deg, var(--pl-b), var(--pl-a));
+  border-radius: 0 var(--pl-h) var(--pl-h) 0;
+  will-change: transform;
+}
+
+/* Petite lueur à l'extrémité de la barre */
+.pl-fill::after {
+  content: "";
+  position: absolute; right: 0; top: 0;
+  width: 90px; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .75));
+  box-shadow: 0 0 10px var(--pl-a), 0 0 4px var(--pl-a);
+  border-radius: 0 var(--pl-h) var(--pl-h) 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pl-fill::after { display: none; }
+  #pl { transition-duration: .01s; }
+}

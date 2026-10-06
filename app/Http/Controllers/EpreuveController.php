@@ -9,6 +9,7 @@ use App\Models\Matiere;
 use App\Models\TypeEvaluation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class EpreuveController extends Controller
 {
@@ -24,12 +25,6 @@ class EpreuveController extends Controller
             ? \App\Models\AnneesScolaire::find(session('annee_id'))
             : \App\Models\AnneesScolaire::where('active', 1)->first();
 
-//        // 📌 Récupérer les classes de l'année active dont le niveau n'est pas 'Primaire'
-//        $classes = \App\Models\Classe::where('annee_id', $anneeActive->id)
-//            ->whereHas('niveau', function($query) {
-//                $query->where('nom', '!=', 'Primaire');
-//            })
-//            ->get();
         // 📌 Récupérer les classes de l'année active dont le niveau n'est pas 'Primaire'
         $classes = \App\Models\Classe::where('annee_id', $anneeActive->id)
             ->whereHas('niveau', function($query) {
@@ -93,12 +88,12 @@ class EpreuveController extends Controller
         ]);
 
         $file = $request->file('epreuve');
-        $filename = time().'_'.$file->getClientOriginalName();
-        $file->storeAs('epreuves', $filename, 'public');
+        $filename = Str::uuid().'.'.$file->extension();
+        Storage::disk('local')->putFileAs('epreuves', $file, $filename);
 
         Epreuve::create([
             'nom_fichier' => $filename,
-            'chemin_fichier' => 'storage/epreuves/'.$filename,
+            'chemin_fichier' => 'epreuves/'.$filename,
             'uploaded_by' => auth()->id(),
             'classe_id' => $request->classe_id,
             'matiere_id' => $request->matiere_id,
@@ -136,11 +131,7 @@ class EpreuveController extends Controller
         }
 
         // ✅ SUPPRESSION DU FICHIER PHYSIQUE
-        $filePath = public_path('storage/epreuves/'.$epreuve->nom_fichier);
-
-        if (file_exists($filePath)) {
-            unlink($filePath);
-        }
+        Storage::disk('local')->delete('epreuves/'.basename($epreuve->nom_fichier));
 
         // 5️⃣ LOG de l’action
         logAction(
@@ -186,18 +177,14 @@ class EpreuveController extends Controller
 
         // Si un nouveau fichier est uploadé
         if ($request->hasFile('epreuve')) {
-            // Supprimer l'ancien
-            $oldFile = public_path('storage/epreuves/' . $epreuve->nom_fichier);
-            if (file_exists($oldFile)) {
-                unlink($oldFile);
-            }
-
             $file = $request->file('epreuve');
-            $filename = time().'_'.$file->getClientOriginalName();
-            $file->storeAs('epreuves', $filename, 'public');
+            $filename = Str::uuid().'.'.$file->extension();
+            Storage::disk('local')->putFileAs('epreuves', $file, $filename);
+
+            Storage::disk('local')->delete('epreuves/'.basename($epreuve->nom_fichier));
 
             $epreuve->nom_fichier = $filename;
-            $epreuve->chemin_fichier = 'storage/epreuves/'.$filename;
+            $epreuve->chemin_fichier = 'epreuves/'.$filename;
         }
 
         $epreuve->classe_id = $request->classe_id;
@@ -215,11 +202,35 @@ class EpreuveController extends Controller
             return redirect()->route('login')->with('error', 'Veuillez vous connecter pour accéder à cette page.');
         }
 
+        $validated = $request->validate([
+            'etat' => 'required|string|in:valide,attente,a_remplacer,compose',
+        ]);
+
         $epreuve = Epreuve::findOrFail($id);
-        $epreuve->etat = $request->etat;
+        $epreuve->etat = $validated['etat'];
         $epreuve->save();
 
         return redirect()->back()->with('success', 'État mis à jour !');
+    }
+
+    public function download($id)
+    {
+        $epreuve = Epreuve::findOrFail($id);
+        $user = auth()->user();
+
+        abort_unless(
+            $user->id === $epreuve->uploaded_by
+            || in_array($user->role, ['admin', 'directeur', 'secretaire'], true),
+            403,
+            'Vous n’êtes pas autorisé à télécharger cette épreuve.'
+        );
+
+        $filename = basename($epreuve->nom_fichier);
+        $path = 'epreuves/'.$filename;
+
+        abort_unless(Storage::disk('local')->exists($path), 404);
+
+        return Storage::disk('local')->download($path, $filename);
     }
 
 

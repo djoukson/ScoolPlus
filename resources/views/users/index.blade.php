@@ -3,6 +3,18 @@
 @section('content')
     <div class="container py-4">
 
+        @if (session('temporary_password'))
+            <div class="alert alert-warning" role="alert">
+                <strong>Mot de passe temporaire — copiez-le maintenant :</strong>
+                <code class="user-select-all">{{ session('temporary_password') }}</code>
+                <div class="small mt-1">Il ne sera affiché qu’une seule fois. Transmettez-le au titulaire du compte par un canal sûr et demandez-lui de le changer après connexion.</div>
+            </div>
+        @endif
+
+        @if (session('success'))
+            <div class="alert alert-success" role="status">{{ session('success') }}</div>
+        @endif
+
         <div class="pro-breadcrumb">
             <div class="breadcrumb-title">
                 Utilisateurs
@@ -47,7 +59,7 @@
                                 <td>{{ $user->username ?? '-' }}</td>
                                 <td>{{ $user->email ?? '-' }}</td>
                                 <td>
-                                <span class="badge bg-{{ $user->role == 'admin' ? 'danger' : ($user->role == 'enseignant' ? 'info' : ($user->role == 'comptable' ? 'warning' : 'secondary')) }}">
+                                <span class="badge bg-{{ $user->role == 'admin' ? 'danger' : ($user->role == 'professeur' ? 'info' : ($user->role == 'comptable' ? 'warning' : 'secondary')) }}">
                                     <i class="fas fa-user-tag"></i> {{ ucfirst($user->role) }}
                                 </span>
                                 </td>
@@ -210,7 +222,7 @@
                 </div>
                 <div class="modal-body text-center">
                     <p>Voulez-vous vraiment réinitialiser le mot de passe de <strong id="resetUserName"></strong> ?</p>
-                    <p class="text-muted mb-0">Le nouveau mot de passe par défaut sera : <code>sp12345$</code></p>
+                    <p class="text-muted mb-0">Un mot de passe temporaire aléatoire sera généré et affiché une seule fois après la réinitialisation.</p>
                 </div>
                 <div class="modal-footer border-0">
                     <form id="resetForm" method="POST" action="">
@@ -252,7 +264,10 @@
                                 <input type="tel" name="phone" id="phone" class="form-control form-control-lg" placeholder="Téléphone">
                             </div>
                             <div class="col-md-6" id="passwordField">
-                                <input type="password" name="password" id="password" class="form-control form-control-lg" placeholder="Mot de passe">
+                                <input type="password" name="password" id="password" class="form-control form-control-lg" placeholder="Mot de passe temporaire" minlength="8">
+                            </div>
+                            <div class="col-12" id="temporaryPasswordHelp" style="display:none">
+                                <small class="text-muted">Un mot de passe temporaire aléatoire sera généré et affiché une seule fois après la création.</small>
                             </div>
                             <div class="col-md-6">
                                 <select name="role" id="role" class="form-select form-select-lg" required>
@@ -346,7 +361,8 @@
             document.getElementById('userModalLabel').innerHTML = '<i class="fas fa-user-plus"></i> Nouvel utilisateur';
             document.getElementById('userForm').action = "{{ route('users.store') }}";
             document.getElementById('formMethod').value = "POST";
-            document.getElementById('passwordField').style.display = "block";
+            document.getElementById('passwordField').style.display = "none";
+            document.getElementById('temporaryPasswordHelp').style.display = "block";
 
             document.getElementById('name').value = "";
             document.getElementById('email').value = "";
@@ -372,6 +388,7 @@
             document.getElementById('sexe').value = sexe;
             document.getElementById('password').value = "";
             document.getElementById('passwordField').style.display = "block";
+            document.getElementById('temporaryPasswordHelp').style.display = "none";
 
             document.getElementById('profilePreview').src = profileimg ?? "{{ asset('images/default-avatar.png') }}";
         }

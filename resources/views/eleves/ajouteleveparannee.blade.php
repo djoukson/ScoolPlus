@@ -9,11 +9,11 @@
             </div>
             {{-- Bouton Liste des classes --}}
             <div class="mb-3">
-                <a href="{{ route('listeclasses.index') }}" class="btn btn-secondary">
+                <a href="{{ route('classes.index') }}" class="btn btn-outline-secondary">
                     📚 Liste des classes
                 </a>
                 <!-- Bouton qui ouvre le modal Ajout Élève -->
-                <button type="button" class="btn btn-primary" data-toggle="modal" data-target="#addEleveModal">
+                <button type="button" class="btn btn-outline-primary" data-toggle="modal" data-target="#addEleveModal">
                     ➕ Ajouter un élève
                 </button>
             </div>            <div class="breadcrumb-wrapper">

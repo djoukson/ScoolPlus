@@ -3,6 +3,14 @@
 @section('content')
     <div class="container py-4">
 
+        @if(session('temporary_password'))
+            <div class="alert alert-warning" role="alert">
+                <strong>Mot de passe temporaire — copiez-le maintenant :</strong>
+                <code class="user-select-all">{{ session('temporary_password') }}</code>
+                <div class="small mt-1">Il ne sera affiché qu’une seule fois. Communiquez-le à l’enseignant après son activation et demandez-lui de le changer dès sa première connexion.</div>
+            </div>
+        @endif
+
         <div class="pro-breadcrumb">
             <div class="breadcrumb-title">
                 Gestion des enseignants/professeurs
@@ -471,4 +479,3 @@
         });
     </script>
 @endpush
-

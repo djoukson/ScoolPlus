@@ -16,6 +16,31 @@
                     </li>
                 </ol>
             </div>
+    <div class="d-flex align-items-center gap-2" style="margin-top: 5px;">
+
+    {{-- Copier les affectations --}}
+    <button
+        type="button"
+        class="btn btn-outline-success shadow-sm"
+        data-toggle="modal"
+        data-target="#copierAffectationsModal">
+
+        <i class="fas fa-copy"></i>
+        Copier les affectations
+    </button>
+
+    {{-- Reverser les affectations --}}
+    <button
+        type="button"
+        class="btn btn-outline-danger shadow-sm"
+        data-toggle="modal"
+        data-target="#reverserAffectationsModal">
+
+        <i class="fas fa-undo"></i>
+        Reverser les affectations
+    </button>
+
+</div>
         </div>
 
 
@@ -108,7 +133,7 @@
 
                             {{-- Boutons --}}
                             <div class="mt-auto d-flex justify-content-end gap-2">
-                                <a href="{{ route('enseignantclasseaffectation.index', $classe->id) }}"
+                                <a href="{{ route('matieres.dansclasse', $classe->id) }}"
                                    class="btn btn-sm btn-outline-primary rounded-pill shadow-sm">
                                     <i class="fas fa-user-plus me-1"></i> Affectations
                                 </a>
@@ -125,6 +150,204 @@
                     </div>
                 </div>
 
+                <div class="modal fade" id="copierAffectationsModal" tabindex="-1" aria-hidden="true">
+
+    <div class="modal-dialog modal-dialog-centered">
+
+        <div class="modal-content border-0 shadow-lg">
+
+            <div class="modal-header bg-success text-white">
+
+                <h5 class="modal-title">
+                    <i class="fas fa-copy"></i>
+                    Copier les affectations
+                </h5>
+
+                <button type="button"
+                        class="close text-white"
+                        data-dismiss="modal">
+
+                    <span>&times;</span>
+
+                </button>
+
+            </div>
+
+            <div class="modal-body">
+
+                <p>
+                    Vous êtes sur l'année :
+
+                    <strong>
+                        {{ $annee_courante?->nom }}
+                    </strong>
+                </p>
+
+                <div class="alert alert-info">
+
+                    <i class="fas fa-info-circle"></i>
+
+                    Les affectations de l'année précédente seront
+                    reprises automatiquement.
+
+                </div>
+
+                <ul>
+                    <li>Responsables des classes du primaire</li>
+                    <li>Professeurs par matière</li>
+                    <li>Nombre d'heures attribuées</li>
+                    <li>Titulaires</li>
+                </ul>
+
+                <div class="alert alert-warning mb-0">
+
+                    <i class="fas fa-exclamation-triangle"></i>
+
+                    Les affectations déjà présentes ne seront pas
+                    remplacées ni dupliquées.
+
+                </div>
+
+            </div>
+
+            <div class="modal-footer">
+
+                <button type="button"
+                        class="btn btn-secondary"
+                        data-dismiss="modal">
+
+                    Annuler
+
+                </button>
+
+                <form
+                    method="POST"
+                    action="{{ route('affectations.copier.annee') }}">
+
+                    @csrf
+
+                    <button type="submit"
+                            class="btn btn-success">
+
+                        <i class="fas fa-copy"></i>
+                        Confirmer la copie
+
+                    </button>
+
+                </form>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+{{-- ========================================================= --}}
+{{-- MODAL : REVERSER LES AFFECTATIONS --}}
+{{-- ========================================================= --}}
+
+<div class="modal fade"
+     id="reverserAffectationsModal"
+     tabindex="-1"
+     aria-hidden="true">
+
+    <div class="modal-dialog modal-dialog-centered">
+
+        <div class="modal-content border-0 shadow-lg">
+
+            <div class="modal-header bg-danger text-white">
+
+                <h5 class="modal-title">
+                    <i class="fas fa-undo"></i>
+                    Reverser les affectations
+                </h5>
+
+                <button type="button"
+                        class="close text-white"
+                        data-dismiss="modal">
+
+                    <span>&times;</span>
+
+                </button>
+
+            </div>
+
+            <div class="modal-body">
+
+                <p>
+                    Vous êtes actuellement sur l'année :
+
+                    <strong>
+                        {{ $annee_courante?->nom ?? 'Non définie' }}
+                    </strong>
+                </p>
+
+                <div class="alert alert-warning">
+
+                    <i class="fas fa-exclamation-triangle"></i>
+
+                    <strong>Attention !</strong>
+
+                    Cette opération va annuler les affectations
+                    reprises ou copiées pour l'année courante.
+                </div>
+
+                <p class="mb-2">
+                    Les éléments concernés peuvent notamment être :
+                </p>
+
+                <ul>
+                    <li>Responsables des classes du primaire</li>
+                    <li>Professeurs affectés aux matières</li>
+                    <li>Nombre d'heures attribuées</li>
+                    <li>Titulaires des classes</li>
+                </ul>
+
+                <div class="alert alert-danger mb-0">
+
+                    <i class="fas fa-exclamation-circle"></i>
+
+                    <strong>Cette action est irréversible.</strong>
+                    Vérifiez bien que vous souhaitez continuer.
+                </div>
+
+            </div>
+
+            <div class="modal-footer">
+
+                <button type="button"
+                        class="btn btn-secondary"
+                        data-dismiss="modal">
+
+                    <i class="fas fa-times"></i>
+                    Annuler
+
+                </button>
+
+                <form
+                    method="POST"
+                    action="{{ route('affectations.vider.annee') }}">
+
+                    @csrf
+
+                    <button type="submit"
+                            class="btn btn-danger">
+
+                        <i class="fas fa-undo"></i>
+                        Oui, reverser
+
+                    </button>
+
+                </form>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
                 {{-- Modal pour choisir le titulaire --}}
                 @if($classe->niveau->nom !== 'Primaire')
                     <div class="modal fade" id="modalTitulaire{{ $classe->id }}" tabindex="-1" aria-hidden="true">

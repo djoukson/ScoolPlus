@@ -6,6 +6,7 @@ use App\Models\Enseignant;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class SettingsController extends Controller
 {
@@ -87,7 +88,7 @@ class SettingsController extends Controller
     {
         $request->validate([
             'current_password' => 'required',
-            'password'         => 'required|string|min:6|confirmed',
+            'password'         => 'required|string|min:8|confirmed',
         ]);
 
         $user = auth()->user();
@@ -102,9 +103,14 @@ class SettingsController extends Controller
             return back()->withErrors(['current_password' => '❌ Ancien mot de passe incorrect.']);
         }
 
+        $newSessionVersion = ((int) $user->session_version) + 1;
         $user->update([
             'password' => Hash::make($request->password),
+            'must_change_password' => false,
+            'remember_token' => Str::random(60),
+            'session_version' => $newSessionVersion,
         ]);
+        $request->session()->put('auth_session_version', $newSessionVersion);
 
         // 🔒 Log de la mise à jour du mot de passe
         logAction(

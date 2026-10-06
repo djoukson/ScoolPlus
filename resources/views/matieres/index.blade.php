@@ -28,73 +28,119 @@
         </div>
 
 
-        {{-- ✅ Tableau moderne --}}
-        <div class="card shadow-lg border-1 rounded-0">
-            <div class="card-body">
-                <table id="notesListeTable" class="table table-hover table-striped align-middle mb-0">
-                    <thead class="table-primary">
-                    <tr>
-                        <th> Nom</th>
-                        <th>Sigle</th>
-                        <th> Niveau</th>
-                        <th> Coefficient</th>
-                        <th class="text-end">Actions</th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    @forelse($matieres as $matiere)
-                        <tr>
-                            <td class="fw-semibold">{{ $matiere->nom }}</td>
-                            <td class="fw-semibold">{{ $matiere->sigle? : '-' }}</td>
-                            @php
-                                $colors = [
-                                    'Primaire' => 'bg-success',
-                                    'College' => 'bg-info',
-                                    'Lycee' => 'bg-warning',
-                                    // ajoute d'autres niveaux si besoin
-                                ];
-
-                                $niveauNom = $matiere->niveau->nom ?? 'Inconnu';
-                                $badgeColor = $colors[$niveauNom] ?? 'bg-secondary'; // couleur par défaut
-                            @endphp
-
-                            <td>
-                                <span class="badge {{ $badgeColor }}">
-                                    {{ ucfirst($niveauNom) }}
-                                </span>
-                            </td>
-
-                            <td>{{ $matiere->coefficient ?? '-' }}</td>
-                            <td class="text-end">
-                                {{-- Modifier --}}
-                                <button class="btn btn-sm btn-outline-warning me-1"
-                                        data-toggle="modal"
-                                        data-target="#matiereModal"
-                                        onclick="openEditMatiere({{ $matiere }})">
-                                    <i class="fas fa-edit"></i>
-                                </button>
-
-                                {{-- Supprimer -> ouverture du modal --}}
-                                <button class="btn btn-sm btn-outline-danger"
-                                        data-toggle="modal"
-                                        data-target="#deleteConfirmModal"
-                                        onclick="setDeleteAction('{{ route('matieres.destroy', $matiere->id) }}')">
-                                    <i class="fas fa-trash-alt"></i>
-                                </button>
-                            </td>
-                        </tr>
-                    @empty
-                        <tr>
-                            <td colspan="4" class="text-center text-muted py-4">
-                                <i class="fas fa-info-circle me-2"></i> Aucune matière enregistrée.
-                            </td>
-                        </tr>
-                    @endforelse
-                    </tbody>
-                </table>
+{{-- ✅ Tableau moderne --}}
+<div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+    <div class="card-header bg-white border-0 pt-4 pb-3 px-4">
+        <div class="d-flex align-items-center justify-content-between">
+            <div>
+                <h5 class="mb-0 fw-bold text-dark">
+                    <i class="fas fa-book-open text-primary me-2"></i> Matières
+                </h5>
+                <small class="text-muted">{{ $matieres->count() }} matière(s) enregistrée(s)</small>
             </div>
         </div>
     </div>
+
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table id="notesListeTable" class="table table-hover align-middle mb-0">
+                <thead>
+                <tr class="text-uppercase text-muted small">
+                    <th class="ps-4 py-3 border-0" style="letter-spacing: .04em;">Nom</th>
+                    <th class="py-3 border-0" style="letter-spacing: .04em;">Sigle</th>
+                    <th class="py-3 border-0" style="letter-spacing: .04em;">Niveau</th>
+                    <th class="py-3 border-0" style="letter-spacing: .04em;">Coefficient</th>
+                    <th class="py-3 border-0 text-end pe-4" style="letter-spacing: .04em;">Actions</th>
+                </tr>
+                </thead>
+                <tbody>
+                @forelse($matieres as $matiere)
+                    @php
+                        $colors = [
+                            'Primaire' => ['badge' => 'text-bg-success', 'avatar' => '#198754'],
+                            'College'  => ['badge' => 'text-bg-info',    'avatar' => '#0dcaf0'],
+                            'Lycee'    => ['badge' => 'text-bg-warning', 'avatar' => '#ffc107'],
+                            // ajoute d'autres niveaux si besoin
+                        ];
+
+                        $niveauNom  = $matiere->niveau->nom ?? 'Inconnu';
+                        $niveauInfo = $colors[$niveauNom] ?? ['badge' => 'text-bg-secondary', 'avatar' => '#6c757d'];
+                        $initiale   = strtoupper(mb_substr($matiere->nom ?? '?', 0, 1));
+                    @endphp
+                    <tr>
+                        <td class="ps-4 py-3">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="d-flex align-items-center justify-content-center rounded-circle fw-bold text-white flex-shrink-0"
+                                     style="width:38px; height:38px; background-color: {{ $niveauInfo['avatar'] }}; font-size: .9rem;">
+                                    {{ $initiale }}
+                                </div>
+                                <span class="fw-semibold text-dark">{{ $matiere->nom }}</span>
+                            </div>
+                        </td>
+                        <td class="py-3">
+                            @if($matiere->sigle)
+                                <span class="badge rounded-pill text-bg-light border text-dark fw-normal px-3 py-2">
+                                    {{ $matiere->sigle }}
+                                </span>
+                            @else
+                                <span class="text-muted">—</span>
+                            @endif
+                        </td>
+                        <td class="py-3">
+                            <span class="badge rounded-pill {{ $niveauInfo['badge'] }} px-3 py-2 fw-normal">
+                                {{ ucfirst($niveauNom) }}
+                            </span>
+                        </td>
+                        <td class="py-3">
+                            @if($matiere->coefficient)
+                                <span class="fw-semibold">{{ $matiere->coefficient }}</span>
+                            @else
+                                <span class="text-muted">—</span>
+                            @endif
+                        </td>
+                        <td class="text-end pe-4 py-3">
+                            <div class="d-inline-flex gap-1">
+                                {{-- Modifier --}}
+                                <button type="button"
+                                        class="btn btn-sm btn-light border rounded-3 text-warning"
+                                        data-toggle="modal"
+                                        data-target="#matiereModal"
+                                        data-bs-toggle="tooltip"
+                                        title="Modifier"
+                                        onclick="openEditMatiere({{ $matiere }})">
+                                    <i class="fas fa-pen"></i>
+                                </button>
+
+                                {{-- Supprimer -> ouverture du modal --}}
+                                <button type="button"
+                                        class="btn btn-sm btn-light border rounded-3 text-danger"
+                                        data-toggle="modal"
+                                        data-target="#deleteConfirmModal"
+                                        data-bs-toggle="tooltip"
+                                        title="Supprimer"
+                                        onclick="setDeleteAction('{{ route('matieres.destroy', $matiere->id) }}')">
+                                    <i class="fas fa-trash-alt"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                @empty
+                    <tr>
+                        <td colspan="5" class="text-center py-5">
+                            <div class="d-flex flex-column align-items-center gap-2 text-muted">
+                                <i class="fas fa-book fa-2x opacity-50"></i>
+                                <span>Aucune matière enregistrée.</span>
+                            </div>
+                        </td>
+                    </tr>
+                @endforelse
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+
 
     {{-- ✅ Modal Ajouter/Modifier --}}
     <div class="modal fade" id="matiereModal" tabindex="-1" aria-hidden="true">
@@ -242,4 +288,13 @@
         });
 
     </script>
+    {{-- Active les tooltips Bootstrap sur les boutons d'action --}}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.forEach(function (el) {
+            new bootstrap.Tooltip(el);
+        });
+    });
+</script>
 @endpush

@@ -131,5 +131,20 @@ class Eleve extends Model
         )->with('decoupage.annee'); // pour récupérer l'année scolaire via le découpage
     }
 
+public function parents()
+{
+    return $this->belongsToMany(
+        User::class,
+        'parent_eleve_user',
+        'eleve_id',
+        'user_id'
+    )->withPivot('relation')
+     ->withTimestamps();
+}
 
+
+public function conversations()
+{
+    return $this->hasMany(Conversation::class);
+}
 }

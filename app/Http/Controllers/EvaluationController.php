@@ -2,6 +2,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\AnneesScolaire;
+use App\Models\Affectation;
 use App\Models\Classe;
 use App\Models\Enseignant;
 use App\Models\Evaluation;
@@ -69,6 +70,13 @@ class EvaluationController extends Controller
             ? AnneesScolaire::find(session('annee_id'))
             : AnneesScolaire::where('active', 1)->first();
 
+        abort_if(!$anneeActive, 404, 'Aucune année scolaire active.');
+
+        $classe = Classe::with(['affectations.matiere', 'affectations.enseignant'])
+            ->where('annee_id', $anneeActive->id)
+            ->findOrFail($classeId);
+        $this->assertCanAccessEvaluationClass($classe->id);
+
         $anneeId = $anneeActive->id;
         $typesEvaluations = TypeEvaluation::all();
 
@@ -78,7 +86,6 @@ class EvaluationController extends Controller
             ->where('annee_id', $anneeId)
             ->get();
 
-        $classe = Classe::with(['affectations.matiere', 'affectations.enseignant'])->findOrFail($classeId);
         $decoupages = Decoupage::where('annee_id', $anneeId)
             ->when($classe->type_decoupage, function($query, $typeDecoupage) {
                 return $query->where('type', $typeDecoupage);
@@ -158,9 +165,23 @@ class EvaluationController extends Controller
             'notes.*.note' => 'nullable|numeric|min:0|max:20',
         ]);
 
+        $decoupage = Decoupage::findOrFail($request->decoupage_id);
+        foreach ($request->notes as $noteData) {
+            $inscription = Inscription::findOrFail($noteData['inscription_id']);
+            abort_unless(
+                (int) $inscription->annee_id === (int) $decoupage->annee_id,
+                422,
+                'Le découpage ne correspond pas à l’année de l’inscription.'
+            );
+            $this->assertCanManageEvaluationAssignment($inscription->classe_id, (int) $request->matiere_id);
+        }
+
         foreach ($request->notes as $noteData) {
 
-            if (!empty($noteData['note'])) {
+            // Une note à 0 est une vraie note et doit être enregistrée.
+            // Les champs vides restent ignorés pour préserver les notes déjà saisies.
+            $noteValue = $noteData['note'] ?? null;
+            if ($noteValue !== null && $noteValue !== '') {
                 $evaluation = Evaluation::updateOrCreate(
                     [
                         'inscription_id' => $noteData['inscription_id'],
@@ -169,7 +190,7 @@ class EvaluationController extends Controller
                         'decoupage_id' => $request->decoupage_id,
                     ],
                     [
-                        'note' => $noteData['note'],
+                        'note' => $noteValue,
                         'date_eval' => $request->date_eval,
                     ]
                 );
@@ -197,6 +218,7 @@ class EvaluationController extends Controller
         ]);
 
         $evaluation = Evaluation::with(['inscription.eleve', 'inscription.classe', 'matiere'])->findOrFail($id);
+        $this->assertCanManageEvaluationAssignment($evaluation->inscription->classe_id, $evaluation->matiere_id);
 
         // 🔹 Informations avant la mise à jour
         $infosAvant = sprintf(
@@ -230,6 +252,7 @@ class EvaluationController extends Controller
         }
 
         $evaluation = Evaluation::with(['inscription.eleve', 'inscription.classe', 'matiere'])->findOrFail($id);
+        $this->assertCanManageEvaluationAssignment($evaluation->inscription->classe_id, $evaluation->matiere_id);
 
         // 🔹 Sauvegarde des infos avant suppression
         $eleveNom   = $evaluation->inscription->eleve->nom ?? 'Inconnu';
@@ -258,11 +281,13 @@ class EvaluationController extends Controller
             return redirect()->route('login')->with('error', 'Veuillez vous connecter pour accéder à cette page.');
         }
         $classe = Classe::findOrFail($classe_id);
+        $teacherMatterIds = $this->assignedMatterIdsForClass($classe->id);
 
         // ✅ Récupérer toutes les évaluations des élèves inscrits dans cette classe
         $evaluations = Evaluation::whereHas('inscription', function($q) use ($classe_id) {
             $q->where('classe_id', $classe_id);
         })
+            ->when($teacherMatterIds !== null, fn($query) => $query->whereIn('matiere_id', $teacherMatterIds))
             ->with(['inscription.eleve', 'matiere', 'decoupage', 'typeEvaluation'])
             ->get();
 
@@ -274,6 +299,59 @@ class EvaluationController extends Controller
         logAction('Consultation', "Affichage des notes pour la classe : {$classe->nom}");
 
         return view('evaluations.notes', compact('classe', 'evaluations', 'decoupages'));
+    }
+
+    private function assertCanAccessEvaluationClass(int $classeId): void
+    {
+        $user = auth()->user();
+
+        if (in_array($user->role, ['admin', 'directeur', 'secretaire'], true)) {
+            return;
+        }
+
+        abort_unless($user->role === 'professeur', 403);
+
+        $enseignant = Enseignant::where('matricule', $user->matricule)->first();
+        abort_unless(
+            $enseignant && Affectation::where('enseignant_id', $enseignant->id)
+                ->where('classe_id', $classeId)
+                ->exists(),
+            403,
+            'Cette classe ne vous est pas attribuée.'
+        );
+    }
+
+    private function assertCanManageEvaluationAssignment(int $classeId, int $matiereId): void
+    {
+        $this->assertCanAccessEvaluationClass($classeId);
+
+        $user = auth()->user();
+        $affectations = Affectation::where('classe_id', $classeId)
+            ->where('matiere_id', $matiereId);
+
+        if ($user->role === 'professeur') {
+            $enseignant = Enseignant::where('matricule', $user->matricule)->firstOrFail();
+            $affectations->where('enseignant_id', $enseignant->id);
+        }
+
+        abort_unless($affectations->exists(), 403, 'Cette matière n’est pas attribuée pour cette classe.');
+    }
+
+    private function assignedMatterIdsForClass(int $classeId): ?array
+    {
+        $this->assertCanAccessEvaluationClass($classeId);
+
+        if (in_array(auth()->user()->role, ['admin', 'directeur', 'secretaire'], true)) {
+            return null;
+        }
+
+        $enseignant = Enseignant::where('matricule', auth()->user()->matricule)->firstOrFail();
+
+        return Affectation::where('enseignant_id', $enseignant->id)
+            ->where('classe_id', $classeId)
+            ->pluck('matiere_id')
+            ->map(fn($id) => (int) $id)
+            ->all();
     }
 
 

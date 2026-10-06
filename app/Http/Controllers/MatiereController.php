@@ -171,6 +171,13 @@ class MatiereController extends Controller
 
     public function matieredansclasse($id)
     {
+        $anneeActive = session('annee_id')
+    ? AnneesScolaire::find(session('annee_id'))
+    : AnneesScolaire::where('active', 1)->first();
+
+        $anneeId = $anneeActive?->id;
+
+
         $classe = Classe::with(['affectations.matiere', 'affectations.enseignant'])->findOrFail($id);
 
         $matieres = $classe->affectations->map(fn($affectation) => $affectation->matiere);
@@ -180,24 +187,40 @@ class MatiereController extends Controller
             ->unique()
             ->toArray();
 
-        $toutesMatieres = Matiere::whereNotIn('nom', $nomsMatieresDejaAffectees)->get();
+$toutesMatieres = Matiere::whereNotIn('nom', $nomsMatieresDejaAffectees)
+    ->orderBy('nom')
+    ->get();
+       
 
-        $enseignants = Enseignant::whereNotIn('id', function ($query) {
-            $query->select('enseignant_id')
-                ->from('affectations')
-                ->whereNotNull('enseignant_id');
-        })
-            ->whereNotIn('id', function ($query) {
-                $query->select('enseignant_id')
-                    ->from('classes')
-                    ->whereNotNull('enseignant_id');
-            })
-            ->get();
+$enseignants = Enseignant::whereHas('niveau', function ($query) {
+        $query->where('nom', 'Primaire');
+    })
+    ->whereNotIn('id', function ($query) use ($anneeId) {
+        $query->select('enseignant_id')
+            ->from('affectations')
+            ->where('annee_id', $anneeId)
+            ->whereNotNull('enseignant_id');
+    })
+    ->whereNotIn('id', function ($query) use ($anneeId) {
+        $query->select('enseignant_id')
+            ->from('classes')
+            ->where('annee_id', $anneeId)
+            ->whereNotNull('enseignant_id');
+    })
+    ->get();
 
-        $professeurs = Enseignant::whereNotIn('id', function ($query) {
-            $query->select('enseignant_id')->from('classes')->whereNotNull('enseignant_id');
-        })
-            ->get();
+       $professeurs = Enseignant::whereHas('niveau', function ($query) {
+        $query->where('nom', '!=', 'Primaire');
+    })
+    ->whereNotIn('id', function ($query) use ($anneeId) {
+        $query->select('enseignant_id')
+            ->from('classes')
+            ->where('annee_id', $anneeId)
+            ->whereNotNull('enseignant_id');
+    })
+    ->get();
+
+
 
         logAction('Consultation', "Consultation des matières dans la classe {$classe->nom}.");
 
@@ -205,61 +228,131 @@ class MatiereController extends Controller
     }
 
     public function affecterMatieres(Request $request, $classeId)
-    {
-        $classe = Classe::findOrFail($classeId);
+{
+    $classe = Classe::findOrFail($classeId);
 
-        $anneeActive = session('annee_id')
-            ? AnneesScolaire::find(session('annee_id'))
-            : AnneesScolaire::where('active', 1)->first();
+    $anneeActive = session('annee_id')
+        ? AnneesScolaire::find(session('annee_id'))
+        : AnneesScolaire::where('active', 1)->first();
 
-        if ($classe->niveau == 'primaire') {
-            $request->validate([
-                'enseignant_id' => 'required|exists:enseignants,id',
-            ]);
+    if (!$anneeActive) {
+        return back()->with('error', 'Aucune année scolaire active.');
+    }
 
-            $classe->update([
-                'enseignant_id' => $request->enseignant_id,
-            ]);
+    /*
+    |--------------------------------------------------------------------------
+    | PRIMAIRE
+    |--------------------------------------------------------------------------
+    */
+    if (strtolower($classe->niveau->nom) === 'primaire') {
 
-            logAction('Affectation', "Affectation de l’enseignant ID {$request->enseignant_id} à la classe {$classe->nom} (niveau primaire).");
-        } else {
-            $request->validate([
-                'matieres' => 'required|array',
-                'enseignant_id' => 'required|array',
-                'heures_attribuees' => 'required|array|min:1',
-            ]);
+    $request->validate([
+            'enseignant_id' => 'required|exists:enseignants,id',
+        ]);
 
-            foreach ($request->matieres as $index => $matiereId) {
-                Affectation::firstOrCreate([
-                    'classe_id'         => $classe->id,
-                    'matiere_id'        => $matiereId,
-                    'annee_id'          => $anneeActive->id,
-                    'enseignant_id'     => $request->enseignant_id[$index],
-                    'heures_attribuees' => $request->heures_attribuees[$index],
-                ]);
-                 logAction('Affectation', "Affectation de l’enseignant ID {$request->enseignant_id[$index]} aux matières de la classe {$classe->nom} pour l’année {$anneeActive->nom}.");
-
-            }
-
+        // Vérifier que la classe appartient bien à l'année active
+        if ($classe->annee_id != $anneeActive->id) {
+            return back()->with('error', 'Cette classe n’appartient pas à l’année scolaire active.');
         }
 
-        return redirect()->route('matieres.dansclasse', $classe->id)
-            ->with('success', 'Affectation réalisée avec succès.');
+        $classe->update([
+            'enseignant_id' => $request->enseignant_id,
+        ]);
+
+        logAction(
+            'Affectation',
+            "Affectation de l’enseignant ID {$request->enseignant_id} à la classe {$classe->nom} (niveau primaire) pour l’année {$anneeActive->nom}."
+        );
     }
 
-    public function mesMatieres()
-    {
-        $matricule = auth()->user()->matricule;
+    /*
+    |--------------------------------------------------------------------------
+    | COLLÈGE / LYCÉE
+    |--------------------------------------------------------------------------
+    */
+    else {
 
-        $enseignant = Enseignant::where('matricule', $matricule)->firstOrFail();
+        $request->validate([
+            'matieres' => 'required|array',
+            'enseignant_id' => 'required|array',
+            'heures_attribuees' => 'required|array|min:1',
+        ]);
 
-        $affectations = Affectation::with(['classe', 'matiere'])
-            ->withCount('emploisDuTemps')
-            ->where('enseignant_id', $enseignant->id)
-            ->get();
+        foreach ($request->matieres as $index => $matiereId) {
 
-        logAction('Consultation', "Consultation des matières assignées à l’enseignant {$enseignant->nom} (Matricule : {$enseignant->matricule}).");
+            Affectation::firstOrCreate([
+                'classe_id'         => $classe->id,
+                'matiere_id'        => $matiereId,
+                'annee_id'          => $anneeActive->id,
+                'enseignant_id'     => $request->enseignant_id[$index],
+                'heures_attribuees' => $request->heures_attribuees[$index],
+            ]);
 
-        return view('matieres.mes_matieres', compact('enseignant', 'affectations'));
+            logAction(
+                'Affectation',
+                "Affectation de l’enseignant ID {$request->enseignant_id[$index]} aux matières de la classe {$classe->nom} pour l’année {$anneeActive->nom}."
+            );
+        }
     }
+
+    return redirect()
+        ->route('matieres.dansclasse', $classe->id)
+        ->with('success', 'Affectation réalisée avec succès.');
+}
+
+public function mesMatieres()
+{
+    // 1️⃣ Vérifie d'abord si l'utilisateur est connecté
+    if (!auth()->check()) {
+        return redirect()->route('login')
+            ->with('error', 'Veuillez vous connecter pour accéder à cette page.');
+    }
+
+    // 2️⃣ Vérifie que l'utilisateur est professeur
+    if (auth()->user()->role !== 'professeur') {
+        return redirect()->back()
+            ->with('error', 'Accès refusé. Vous n\'avez pas les autorisations nécessaires.');
+    }
+
+    // 3️⃣ Récupère l'année scolaire sélectionnée ou l'année active
+    $anneeActive = session('annee_id')
+        ? AnneesScolaire::find(session('annee_id'))
+        : AnneesScolaire::where('active', 1)->first();
+
+    if (!$anneeActive) {
+        return redirect()->back()
+            ->with('error', 'Aucune année scolaire active.');
+    }
+
+    // 4️⃣ Récupère l'enseignant correspondant au compte connecté
+    $enseignant = Enseignant::where(
+        'matricule',
+        auth()->user()->matricule
+    )->firstOrFail();
+
+    // 5️⃣ Récupère les affectations de l'enseignant
+    //    pour l'année scolaire sélectionnée
+    $affectations = Affectation::with([
+            'classe',
+            'matiere',
+            'annees_scolaire'
+        ])
+        ->withCount('emploisDuTemps')
+        ->where('annee_id', $anneeActive->id)
+        ->where('enseignant_id', $enseignant->id)
+        ->get();
+
+    // 6️⃣ Journalisation
+    logAction(
+        'Consultation',
+        "Consultation des matières assignées à l’enseignant {$enseignant->nom} " .
+        "(Matricule : {$enseignant->matricule}, année scolaire : {$anneeActive->nom})."
+    );
+
+    // 7️⃣ Retour vers la vue
+    return view(
+        'matieres.mes_matieres',
+        compact('enseignant', 'affectations', 'anneeActive')
+    );
+}
 }

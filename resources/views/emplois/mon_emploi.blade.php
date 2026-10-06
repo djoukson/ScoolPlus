@@ -38,7 +38,7 @@
                         <img src="{{ asset('dist/img/logo.png') }}" alt="Logo école" style="height:60px;" class="mb-2">
                         <h4 class="fw-bold mb-0">{{ $ecole->nom ?? 'Nom de l’école' }}</h4>
                         <p class="mb-0 fst-italic">{{ $ecole->devise ?? 'Travail - Liberté - Patrie' }}</p>
-                        <small>Année scolaire : {{ $ecole->annee_scolaire ?? '2025-2026' }}</small>
+                        <small>Année scolaire : {{ $ecole->annee->nom ?? '---' }}</small>
                         <h3 class="fw-bold mt-2">Emploi du temps du professeur </h3>
                         <p class="fw-semibold">Mr/Mme {{ $enseignant->nom ?? '' }} {{ $enseignant->prenom ?? '' }}</p>
                     </div>

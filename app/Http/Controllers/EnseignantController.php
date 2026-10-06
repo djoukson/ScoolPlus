@@ -11,7 +11,8 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
-
+use Illuminate\Support\Facades\DB;
+use App\Models\Titulaire;
 class EnseignantController extends Controller
 {
     /**
@@ -25,6 +26,10 @@ class EnseignantController extends Controller
         })->get();
 
         foreach ($enseignantsSansUser as $enseignant) {
+            $temporaryPassword = bin2hex(random_bytes(16));
+            $enseignant->statut = false;
+            $enseignant->save();
+
             $user = User::create([
                 'name'      => $enseignant->nom . ' ' . $enseignant->prenom,
                 'email' => !empty($enseignant->email) ? $enseignant->email : null,
@@ -32,8 +37,12 @@ class EnseignantController extends Controller
                 'username'  => strtolower($enseignant->prenom) . '.' . strtolower($enseignant->nom),
                 'role'      => 'professeur',
                 'matricule' => $enseignant->matricule ? : null,
-                'password'  => Hash::make('sp12345$'),
+                'password'  => Hash::make($temporaryPassword),
+                'status' => false,
+                'must_change_password' => true,
             ]);
+            $enseignant->user_id = $user->id;
+            $enseignant->save();
 
             logAction('Création automatique de compte', "Un compte utilisateur a été créé pour l'enseignant {$enseignant->nom} {$enseignant->prenom} (Matricule : {$enseignant->matricule}, Email : {$enseignant->email}).");
         }
@@ -51,6 +60,12 @@ class EnseignantController extends Controller
 
     public function store(Request $request)
     {
+        abort_unless(
+            in_array(auth()->user()?->role, ['admin', 'directeur', 'secretaire'], true),
+            403,
+            'Vous n’êtes pas autorisé à créer un enseignant.'
+        );
+
         // Validation
         $validated = $request->validate([
             'nom'        => 'required|string|max:100',
@@ -71,19 +86,24 @@ class EnseignantController extends Controller
         $matricule = User::generateMatricule('ENS');
         $validated['matricule'] = $matricule;
 
-        // Création de l'enseignant avec niveau
+        // Tout nouvel enseignant reste inactif jusqu'à l'activation explicite.
+        $validated['statut'] = false;
         $enseignant = Enseignant::create($validated);
 
         // Création du compte utilisateur associé
-        User::create([
+        $user = User::create([
             'name'      => "{$validated['nom']} {$validated['prenom']}",
             'email'     => $validated['email'] ?? null,
             'phone'     => $validated['tel'] ?? null,
             'username'  => strtolower($validated['prenom']) . '.' . strtolower($validated['nom']),
             'role'      => 'professeur',
             'matricule' => $matricule,
-            'password'  => Hash::make('sp12345$'),
+            'password'  => Hash::make(bin2hex(random_bytes(16))),
+            'status' => false,
+            'must_change_password' => true,
         ]);
+        $enseignant->user_id = $user->id;
+        $enseignant->save();
 
         logAction(
             'Création',
@@ -150,15 +170,59 @@ class EnseignantController extends Controller
      */
     public function toggleStatus($id)
     {
+        abort_unless(
+            in_array(auth()->user()?->role, ['admin', 'directeur'], true),
+            403,
+            'Seuls les administrateurs peuvent activer ou désactiver un enseignant.'
+        );
+
         $enseignant = Enseignant::findOrFail($id);
         $ancienStatut = $enseignant->statut ? 'actif' : 'inactif';
         $enseignant->statut = !$enseignant->statut;
         $enseignant->save();
         $nouveauStatut = $enseignant->statut ? 'actif' : 'inactif';
 
+        $user = User::where('matricule', $enseignant->matricule)->first();
+        $temporaryPassword = null;
+
+        if ($user) {
+            $user->status = $enseignant->statut;
+            if ($enseignant->statut) {
+                $temporaryPassword = bin2hex(random_bytes(16));
+                $user->password = Hash::make($temporaryPassword);
+                $user->must_change_password = true;
+                $user->remember_token = Str::random(60);
+                $user->session_version = ((int) $user->session_version) + 1;
+            }
+            $user->save();
+        } elseif ($enseignant->statut) {
+            $temporaryPassword = bin2hex(random_bytes(16));
+            $user = User::create([
+                'name' => $enseignant->nom . ' ' . $enseignant->prenom,
+                'email' => $enseignant->email,
+                'phone' => $enseignant->tel,
+                'username' => strtolower($enseignant->prenom) . '.' . strtolower($enseignant->nom),
+                'role' => 'professeur',
+                'matricule' => $enseignant->matricule,
+                'password' => Hash::make($temporaryPassword),
+                'status' => true,
+                'must_change_password' => true,
+                'remember_token' => Str::random(60),
+                'session_version' => 1,
+            ]);
+
+            $enseignant->user_id = $user->id;
+            $enseignant->save();
+        }
+
         logAction('Changement de statut', "Le statut de l’enseignant {$enseignant->nom} {$enseignant->prenom} (Matricule : {$enseignant->matricule}) est passé de {$ancienStatut} à {$nouveauStatut}.");
 
-        return redirect()->route('enseignants.index')->with('success', 'Statut de l’enseignant modifié avec succès.');
+        $response = redirect()->route('enseignants.index')->with('success', 'Statut de l’enseignant modifié avec succès.');
+        if ($temporaryPassword !== null) {
+            $response->with('temporary_password', $temporaryPassword);
+        }
+
+        return $response;
     }
 
     /**
@@ -212,6 +276,13 @@ class EnseignantController extends Controller
      */
     public function enseignantclasseaffectation($classeId)
     {
+          // 🔹 Année scolaire courante
+        $annee_courante = session('annee_id')
+            ? AnneesScolaire::find(session('annee_id'))
+            : AnneesScolaire::where('active', 1)->first();
+$annee_id = $annee_courante?->id;
+
+
         $classe = Classe::with([
             'annee',
             'inscriptions',
@@ -219,18 +290,26 @@ class EnseignantController extends Controller
             'affectations.enseignant',
         ])->findOrFail($classeId);
 
-        $enseignants = Enseignant::where('niveau_id', 1) // Primaire
-        ->whereNotIn('id', function ($query) {
-            $query->select('enseignant_id')
-                ->from('affectations')
-                ->whereNotNull('enseignant_id');
-        })
-            ->whereNotIn('id', function ($query) {
-                $query->select('enseignant_id')
-                    ->from('classes')
-                    ->whereNotNull('enseignant_id');
-            })
-            ->get();
+      // 🔹 Enseignants disponibles pour l'année scolaire courante
+$enseignants = Enseignant::where('niveau_id', 1) // Primaire
+
+    // Non affecté cette année
+    ->whereNotIn('id', function ($query) use ($annee_id) {
+        $query->select('enseignant_id')
+            ->from('affectations')
+            ->whereNotNull('enseignant_id')
+            ->where('annee_id', $annee_id);
+    })
+
+    // Non responsable d'une classe cette année
+    ->whereNotIn('id', function ($query) use ($annee_id) {
+        $query->select('enseignant_id')
+            ->from('classes')
+            ->whereNotNull('enseignant_id')
+            ->where('annee_id', $annee_id);
+    })
+
+    ->get();
 
 
 
@@ -329,6 +408,278 @@ class EnseignantController extends Controller
         ]);
     }
 
+/**
+ * Copier les affectations de l'année précédente
+ * vers l'année scolaire actuelle.
+ */
+public function copierAffectationsAnneePrecedente()
+{
+    $anneeActuelle = session('annee_id')
+        ? AnneesScolaire::find(session('annee_id'))
+        : AnneesScolaire::where('active', 1)->first();
+
+    if (!$anneeActuelle) {
+        return back()->with('error', 'Aucune année scolaire actuelle n\'est définie.');
+    }
+
+    // 🔹 Recherche de l'année précédente
+    $anneePrecedente = AnneesScolaire::where('id', '<', $anneeActuelle->id)
+        ->orderByDesc('id')
+        ->first();
+
+    if (!$anneePrecedente) {
+        return back()->with(
+            'error',
+            'Aucune année scolaire précédente n\'a été trouvée.'
+        );
+    }
+
+    $nombreResponsables = 0;
+    $nombreAffectations = 0;
+    $nombreTitulaires = 0;
+
+    DB::transaction(function () use (
+        $anneeActuelle,
+        $anneePrecedente,
+        &$nombreResponsables,
+        &$nombreAffectations,
+        &$nombreTitulaires
+    ) {
+
+        // 🔹 Toutes les classes de l'année actuelle
+        $classesActuelles = Classe::where(
+            'annee_id',
+            $anneeActuelle->id
+        )->get();
+
+        foreach ($classesActuelles as $classeActuelle) {
+
+            /*
+            |--------------------------------------------------------------------------
+            | Recherche de la classe correspondante dans l'année précédente
+            |--------------------------------------------------------------------------
+            */
+
+            $classePrecedente = Classe::where(
+                'annee_id',
+                $anneePrecedente->id
+            )
+                ->where('nom', $classeActuelle->nom)
+                ->where('niveau_id', $classeActuelle->niveau_id)
+                ->first();
+
+            // Aucune correspondance
+            if (!$classePrecedente) {
+                continue;
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | 1. PRIMAIRE
+            |--------------------------------------------------------------------------
+            */
+
+            if ($classeActuelle->niveau_id == 1) {
+
+                // Ne pas écraser un responsable déjà présent
+                if (
+                    !$classeActuelle->enseignant_id &&
+                    $classePrecedente->enseignant_id
+                ) {
+
+                    $classeActuelle->update([
+                        'enseignant_id' => $classePrecedente->enseignant_id,
+                    ]);
+
+                    $nombreResponsables++;
+                }
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | 2. PROFESSEURS / AFFECTATIONS
+            |--------------------------------------------------------------------------
+            */
+
+            else {
+
+                $affectationsPrecedentes = Affectation::where(
+                    'classe_id',
+                    $classePrecedente->id
+                )
+                    ->where('annee_id', $anneePrecedente->id)
+                    ->get();
+
+                foreach ($affectationsPrecedentes as $ancienne) {
+
+                    /*
+                    |--------------------------------------------------------------------------
+                    | Vérifier si cette affectation existe déjà
+                    |--------------------------------------------------------------------------
+                    */
+
+                    $existe = Affectation::where(
+                        'classe_id',
+                        $classeActuelle->id
+                    )
+                        ->where('annee_id', $anneeActuelle->id)
+                        ->where('enseignant_id', $ancienne->enseignant_id)
+                        ->where('matiere_id', $ancienne->matiere_id)
+                        ->exists();
+
+                    if ($existe) {
+                        continue;
+                    }
+
+                    Affectation::create([
+                        'annee_id' => $anneeActuelle->id,
+                        'classe_id' => $classeActuelle->id,
+                        'enseignant_id' => $ancienne->enseignant_id,
+                        'matiere_id' => $ancienne->matiere_id,
+                        'heures_attribuees' => $ancienne->heures_attribuees,
+                        'note' => $ancienne->note,
+                    ]);
+
+                    $nombreAffectations++;
+                }
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | 3. TITULAIRE
+            |--------------------------------------------------------------------------
+            */
+
+            $titulairePrecedent = Titulaire::where(
+                'classe_id',
+                $classePrecedente->id
+            )
+                ->where('annee_id', $anneePrecedente->id)
+                ->first();
+
+            if ($titulairePrecedent) {
+
+                $titulaireExiste = Titulaire::where(
+                    'classe_id',
+                    $classeActuelle->id
+                )
+                    ->where('annee_id', $anneeActuelle->id)
+                    ->exists();
+
+                if (!$titulaireExiste) {
+
+                    Titulaire::create([
+                        'annee_id' => $anneeActuelle->id,
+                        'classe_id' => $classeActuelle->id,
+                        'enseignant_id' => $titulairePrecedent->enseignant_id,
+                    ]);
+
+                    $nombreTitulaires++;
+                }
+            }
+        }
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | Journalisation
+    |--------------------------------------------------------------------------
+    */
+
+    logAction(
+        'Affectation',
+        "Copie des affectations de {$anneePrecedente->nom} vers {$anneeActuelle->nom}. " .
+        "{$nombreResponsables} responsable(s), " .
+        "{$nombreAffectations} affectation(s), " .
+        "{$nombreTitulaires} titulaire(s)."
+    );
+
+    return back()->with(
+        'success',
+        "Copie terminée : {$nombreResponsables} responsable(s), " .
+        "{$nombreAffectations} affectation(s) et " .
+        "{$nombreTitulaires} titulaire(s) copiés."
+    );
+}
 
 
+public function viderAffectationsAnnee()
+{
+    $anneeActuelle = session('annee_id')
+        ? AnneesScolaire::find(session('annee_id'))
+        : AnneesScolaire::where('active', 1)->first();
+
+    if (!$anneeActuelle) {
+        return back()->with('error', 'Aucune année scolaire actuelle n\'est définie.');
+    }
+
+    $nombreAffectations = 0;
+    $nombreTitulaires = 0;
+    $nombreResponsables = 0;
+
+    DB::transaction(function () use (
+        $anneeActuelle,
+        &$nombreAffectations,
+        &$nombreTitulaires,
+        &$nombreResponsables
+    ) {
+
+        // 1️⃣ Supprimer les affectations de l'année courante
+        $nombreAffectations = Affectation::where(
+            'annee_id',
+            $anneeActuelle->id
+        )->count();
+
+        Affectation::where(
+            'annee_id',
+            $anneeActuelle->id
+        )->delete();
+
+
+        // 2️⃣ Supprimer les titulaires de l'année courante
+        $nombreTitulaires = Titulaire::where(
+            'annee_id',
+            $anneeActuelle->id
+        )->count();
+
+        Titulaire::where(
+            'annee_id',
+            $anneeActuelle->id
+        )->delete();
+
+
+        // 3️⃣ Vider le responsable des classes primaires
+        $classes = Classe::where(
+            'annee_id',
+            $anneeActuelle->id
+        )->whereNotNull('enseignant_id')->get();
+
+        $nombreResponsables = $classes->count();
+
+        Classe::where(
+            'annee_id',
+            $anneeActuelle->id
+        )->update([
+            'enseignant_id' => null
+        ]);
+    });
+
+
+    logAction(
+        'Suppression',
+        "Toutes les affectations de l'année scolaire {$anneeActuelle->nom} ont été supprimées. " .
+        "{$nombreAffectations} affectation(s), " .
+        "{$nombreTitulaires} titulaire(s) et " .
+        "{$nombreResponsables} responsable(s) supprimés."
+    );
+
+
+    return back()->with(
+        'success',
+        "Année {$anneeActuelle->nom} vidée avec succès : " .
+        "{$nombreAffectations} affectation(s), " .
+        "{$nombreTitulaires} titulaire(s) et " .
+        "{$nombreResponsables} responsable(s) supprimés."
+    );
+}
 }

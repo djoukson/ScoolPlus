@@ -45,7 +45,7 @@
                                             <span class="badge bg-danger">Aucun</span>
                                         @endif
                                     </p>
-                                @else
+                            @else
                                     <p class="text-muted mb-3">
                                         <i class="fas fa-book text-success me-1"></i>
 

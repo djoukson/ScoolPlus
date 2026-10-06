@@ -136,7 +136,7 @@
                                 </td>
 
                                 <td>
-                                    <a href="{{ asset($epreuve->chemin_fichier) }}" target="_blank" class="badge badge-success" title="{{ $epreuve->nom_fichier }}">
+                                    <a href="{{ route('epreuves.download', $epreuve->id) }}" class="badge badge-success" title="Télécharger l’épreuve">
                                         <i class="fa fa-file"></i> Ouvrir
                                     </a>
                                 </td>

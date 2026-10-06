@@ -78,12 +78,26 @@
                                         @endif
                                     @endif
                                 </td>
-                                <td class="text-center">
-                                    <a href="{{ route('emplois.create', $classe->id) }}"
-                                       class="btn btn-sm btn-outline-primary rounded-pill shadow-sm">
-                                        <i class="fas fa-clock me-1"></i> Emploi du temps
-                                    </a>
-                                </td>
+                               <td class="text-center">
+
+    @if($classe->niveau->nom !== 'Primaire')
+
+        <a href="{{ route('emplois.create', $classe->id) }}"
+           class="btn btn-sm btn-outline-primary rounded-pill shadow-sm">
+            <i class="fas fa-clock me-1"></i>
+            Emploi du temps
+        </a>
+
+    @else
+
+        <a href="{{ route('enseignantclasseaffectation.index', $classe->id) }}"
+                                   class="btn btn-sm btn-outline-warning rounded-pill shadow-sm">
+                                    <i class="fas fa-user-plus me-1"></i> Affectations
+                                </a>
+
+    @endif
+
+</td>
                             </tr>
                         @empty
                             <tr>

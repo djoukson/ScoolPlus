@@ -24,7 +24,7 @@
                  alt="SchoolPlus Logo"
                  class="brand-image img-circle elevation-3"
                  style="opacity:.9; width:40px; height:40px;">
-            <span class="brand-text font-weight-bold ml-2">
+            <span class="brand-text ml-2">
             {{ $ecole->nom ?? 'SchoolPlus' }}
         </span>
         </a>

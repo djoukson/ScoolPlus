@@ -10,7 +10,7 @@
             <div class="mb-3">
                 <a href="#" data-toggle="modal" data-target="#affecterMatiereModal"
                    class="btn btn-outline-info">
-                    ➕ Affectation des Matières
+                    ➕ Affectation
                 </a>
             </div>
             <div class="breadcrumb-wrapper">
@@ -19,7 +19,7 @@
                         <a href="/">Dashboard</a>
                     </li>
                     <li class="breadcrumb-item">
-                        <a href="{{ route('matieres.matiereparclasse') }}" >
+                        <a href="{{ route('enseignantclasse.index') }}" >
                             ⬅ Retour aux classes
                         </a>
                     </li>
@@ -189,140 +189,282 @@
 
     </div>
 
-    <!-- ✅ Modal Affectation Matières -->
-    <div class="modal fade" id="affecterMatiereModal" tabindex="-1" aria-labelledby="affecterMatiereModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-lg modal-dialog-centered">
-            <div class="modal-content border-0 shadow-lg rounded-4">
+   <!-- ✅ Modal Affectation Matières (version modernisée) -->
+<div class="modal fade" id="affecterMatiereModal" tabindex="-1" aria-labelledby="affecterMatiereModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg am-modal">
 
-                <!-- Header -->
-                <div class="modal-header bg-gradient text-white rounded-top-4"
-                     style="background: linear-gradient(45deg, #0d6efd, #6610f2);">
-                    <h5 class="modal-title fw-bold d-flex align-items-center" id="affecterMatiereModalLabel">
-                        <i class="fas fa-plus-circle me-2"></i>
-                        Nouvelle affectation – <span class="ms-1 text-warning">{{ $classe->nom }}</span>
+            <!-- Header -->
+            <div class="modal-header am-header border-0">
+                <div>
+                    <h5 class="modal-title fw-bold mb-1" id="affecterMatiereModalLabel">
+                        Nouvelle affectation
                     </h5>
-                    <button type="button" class="btn-close btn-close-white" data-dismiss="modal" aria-label="Fermer"></button>
+                    <p class="am-header-sub mb-0">
+                        Classe <strong>{{ $classe->nom }}</strong> · {{ $classe->niveau->nom }}
+                    </p>
                 </div>
+                <button type="button" class="btn-close btn-close-white" data-dismiss="modal" aria-label="Fermer"></button>
+            </div>
 
-                <!-- Form -->
-                <form method="POST" action="{{ route('classes.affecterMatieres', $classe->id) }}">
-                    @csrf
-                    <div class="modal-body p-4">
+            <!-- Form -->
+            <form method="POST" action="{{ route('classes.affecterMatieres', $classe->id) }}">
+                @csrf
+                <div class="modal-body p-4">
 
-                        <p class="text-muted mb-4">
-                            Remplissez les champs ci-dessous pour affecter des matières à la classe <strong>{{ $classe->nom }}</strong>.
-                        </p>
+                    <p class="text-muted small mb-4">
+                        Renseignez les informations ci-dessous pour affecter des matières à cette classe.
+                    </p>
 
-                        @if($classe->niveau->nom == 'Primaire')
-                            <div class="mb-3">
-                                <label for="enseignant_id" class="form-label fw-bold">Enseignant</label>
-                                <select class="form-select shadow-sm" name="enseignant_id" id="enseignant_id" required>
-                                    <option value="">-- Sélectionner --</option>
-                                    @foreach($enseignants as $enseignant)
-                                        <option value="{{ $enseignant->id }}">
-                                            {{ $enseignant->nom }} {{ $enseignant->prenom }} ({{ $enseignant->type }})
-                                        </option>
-                                    @endforeach
-                                </select>
-                            </div>
-                        @else
-                            <!-- Conteneur pour les lignes dynamiques -->
-                            <div id="affectation-container">
+                    @if($classe->niveau->nom == 'Primaire')
+                        <div class="am-field">
+                            <label for="enseignant_id" class="form-label fw-semibold">Enseignant</label>
+                            <select class="form-select am-select" name="enseignant_id" id="enseignant_id" required>
+                                <option value="">Sélectionner un enseignant</option>
+                                @foreach($enseignants as $enseignant)
+                                    <option value="{{ $enseignant->id }}">
+                                        {{ $enseignant->nom }} {{ $enseignant->prenom }} — {{ $enseignant->type }}
+                                    </option>
+                                @endforeach
+                            </select>
+                        </div>
+                    @else
+                        <!-- Conteneur pour les lignes dynamiques -->
+                        <div id="affectation-container" class="d-flex flex-column gap-3">
 
-                                <div class="row g-3 align-items-end affectation-row">
+                            <div class="am-row affectation-row">
+                                <div class="am-row-grid">
                                     <!-- Matière -->
-                                    <div class="col-md-4">
-                                        <label class="form-label fw-semibold">
-                                            <i class="fas fa-book text-primary me-2"></i> Matière
-                                        </label>
-                                        <select name="matieres[]" class="form-select matiere-select" required>
-                                            <option value="" disabled selected>-- Choisissez la matière --</option>
+                                    <div class="am-field">
+                                        <label class="form-label fw-semibold">Matière</label>
+                                        <select name="matieres[]" class="form-select am-select matiere-select" required>
+                                            <option value="" disabled selected>Choisir une matière</option>
                                             @foreach($toutesMatieres as $matiere)
-                                                <option value="{{ $matiere->id }}">{{ $matiere->nom }} (Coef. {{ $matiere->coefficient }})</option>
+                                                <option value="{{ $matiere->id }}">{{ $matiere->nom }} ( Coef. {{ $matiere->coefficient }})</option>
                                             @endforeach
                                         </select>
                                     </div>
 
                                     <!-- Professeur -->
-                                    <div class="col-md-4">
-                                        <label class="form-label fw-bold">Professeur</label>
-                                        <select name="enseignant_id[]" class="form-select enseignant-select" required>
-                                            <option value="">-- Sélectionner --</option>
+                                    <div class="am-field">
+                                        <label class="form-label fw-semibold">Professeur</label>
+                                        <select name="enseignant_id[]" class="form-select am-select enseignant-select" required>
+                                            <option value="">Sélectionner</option>
                                             @foreach($professeurs as $professeur)
-                                                <option value="{{ $professeur->id }}">{{ $professeur->nom }} {{ $professeur->prenom }} ({{ $professeur->type }})</option>
+                                                <option value="{{ $professeur->id }}">{{ $professeur->nom }} {{ $professeur->prenom }} </option>
                                             @endforeach
                                         </select>
                                     </div>
 
                                     <!-- Heures -->
-                                    <div class="col-md-3">
-                                        <label class="form-label fw-semibold">
-                                            <i class="fas fa-clock text-danger me-2"></i> Heures
-                                        </label>
-                                        <input type="number" name="heures_attribuees[]" class="form-control" min="1" placeholder="Ex: 20" required>
+                                    <div class="am-field am-field-heures">
+                                        <label class="form-label fw-semibold">Heures</label>
+                                        <input type="number" name="heures_attribuees[]" class="form-control am-input" min="1" placeholder="20" required>
                                     </div>
 
-                                    <!-- Bouton Ajouter -->
-                                    <div class="col-md-1 d-grid">
-                                        <button type="button" class="btn btn-success btn-add-row">
+                                    <!-- Actions -->
+                                    <div class="am-field-actions">
+                                        <button type="button" class="am-btn-icon am-btn-add" title="Ajouter une ligne">
                                             <i class="fas fa-plus"></i>
+                                        </button>
+                                        <button type="button" class="am-btn-icon am-btn-remove" title="Supprimer cette ligne">
+                                            <i class="fas fa-trash-alt"></i>
                                         </button>
                                     </div>
                                 </div>
-
                             </div>
-                        @endif
 
-                    </div>
+                        </div>
+                    @endif
 
-                    <!-- Footer -->
-                    <div class="modal-footer d-flex justify-content-between px-4 py-3 border-0">
-                        <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-dismiss="modal">
-                            <i class="fas fa-times me-1"></i> Annuler
-                        </button>
-                        <button type="submit" class="btn btn-success rounded-pill px-4 shadow-sm">
-                            <i class="fas fa-check-circle me-1"></i> Valider l’affectation
-                        </button>
-                    </div>
-                </form>
-            </div>
+                </div>
+
+                <!-- Footer -->
+                <div class="modal-footer border-0 px-4 py-3 am-footer">
+                    <button type="button" class="btn am-btn-cancel" data-dismiss="modal">
+                        Annuler
+                    </button>
+                    <button type="submit" class="btn am-btn-submit">
+                        Valider l'affectation
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
+</div>
 
-    @push('scripts')
-        <script>
-            $(document).ready(function () {
-                function initSelect2(row) {
-                    row.find('.matiere-select, .enseignant-select').select2({
-                        width: '100%',
-                        placeholder: 'Sélectionnez',
-                        allowClear: true
-                    });
-                }
+<style>
+/* ---------- Modal shell ---------- */
+.am-modal {
+    border-radius: 20px;
+    overflow: hidden;
+}
 
-                // Initialiser Select2 sur la première ligne
-                initSelect2($('#affectation-container .affectation-row'));
+.am-header {
+    background: #1e2757;
+    padding: 1.5rem 1.75rem;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+}
+.am-header .modal-title {
+    color: #fff;
+    font-size: 1.25rem;
+    letter-spacing: -0.01em;
+}
+.am-header-sub {
+    color: rgba(255, 255, 255, 0.65);
+    font-size: 0.85rem;
+}
 
-                // Ajouter une nouvelle ligne
-                $(document).on('click', '.btn-add-row', function () {
-                    let row = $(this).closest('.affectation-row');
+/* ---------- Fields ---------- */
+.am-field label {
+    font-size: 0.8rem;
+    color: #4b5166;
+    margin-bottom: 0.35rem;
+}
 
-                    // Détruire Select2 avant clonage pour éviter les doublons
-                    row.find('.matiere-select, .enseignant-select').select2('destroy');
+.am-select,
+.am-input {
+    border: 1.5px solid #e3e5ec;
+    border-radius: 10px;
+    padding: 0.6rem 0.85rem;
+    font-size: 0.92rem;
+    background-color: #f8f9fc;
+    transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+.am-select:focus,
+.am-input:focus {
+    border-color: #4c5bd4;
+    background-color: #fff;
+    box-shadow: 0 0 0 3px rgba(76, 91, 212, 0.15);
+}
 
-                    let newRow = row.clone(); // clone sans true
-                    newRow.find('select, input').val(''); // vider les champs
+/* ---------- Dynamic rows ---------- */
+.am-row {
+    background: #f8f9fc;
+    border: 1.5px solid #eceefa;
+    border-radius: 14px;
+    padding: 1rem 1.1rem;
+}
 
-                    row.after(newRow);
+.am-row-grid {
+    display: grid;
+    grid-template-columns: 2fr 2fr 1fr auto;
+    gap: 0.9rem;
+    align-items: end;
+}
 
-                    // Réinitialiser Select2 sur les deux lignes
-                    initSelect2(row);
-                    initSelect2(newRow);
-                });
+.am-field-heures .am-input {
+    text-align: center;
+}
+
+.am-field-actions {
+    display: flex;
+    gap: 0.4rem;
+}
+
+.am-btn-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    border: 1.5px solid transparent;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.am-btn-add {
+    background: #eef0fd;
+    color: #4c5bd4;
+}
+.am-btn-add:hover { background: #dfe3fb; }
+
+.am-btn-remove {
+    background: #fdeeee;
+    color: #d64c4c;
+}
+.am-btn-remove:hover { background: #fbdede; }
+
+/* First row has nothing to remove yet — hide its delete button */
+.affectation-row:first-child .am-btn-remove {
+    display: none;
+}
+
+@media (max-width: 767px) {
+    .am-row-grid {
+        grid-template-columns: 1fr;
+    }
+    .am-field-actions {
+        justify-content: flex-end;
+    }
+}
+
+/* ---------- Footer ---------- */
+.am-footer {
+    background: #fbfbfd;
+    border-top: 1px solid #eceefa !important;
+}
+
+.am-btn-cancel {
+    border-radius: 10px;
+    padding: 0.55rem 1.4rem;
+    color: #4b5166;
+    border: 1.5px solid #e3e5ec;
+    background: #fff;
+}
+.am-btn-cancel:hover { background: #f4f5f9; }
+
+.am-btn-submit {
+    border-radius: 10px;
+    padding: 0.55rem 1.6rem;
+    background: #1e2757;
+    color: #fff;
+    font-weight: 600;
+    border: none;
+}
+.am-btn-submit:hover { background: #161d42; color: #fff; }
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const container = document.getElementById('affectation-container');
+    if (!container) return;
+
+    container.addEventListener('click', function (e) {
+        const addBtn = e.target.closest('.am-btn-add');
+        const removeBtn = e.target.closest('.am-btn-remove');
+
+        if (addBtn) {
+            const row = addBtn.closest('.affectation-row');
+            const clone = row.cloneNode(true);
+
+            // Reset values on the clone
+            clone.querySelectorAll('select').forEach(s => s.selectedIndex = 0);
+            clone.querySelectorAll('input').forEach(i => i.value = '');
+            clone.querySelector('.am-btn-remove').style.display = 'inline-flex';
+
+            clone.style.opacity = '0';
+            container.appendChild(clone);
+            requestAnimationFrame(() => {
+                clone.style.transition = 'opacity 0.2s ease';
+                clone.style.opacity = '1';
             });
-        </script>
+        }
 
-    @endpush
+        if (removeBtn) {
+            const row = removeBtn.closest('.affectation-row');
+            row.style.transition = 'opacity 0.15s ease';
+            row.style.opacity = '0';
+            setTimeout(() => row.remove(), 150);
+        }
+    });
+});
+</script>
+
+    
 
 
 @endsection

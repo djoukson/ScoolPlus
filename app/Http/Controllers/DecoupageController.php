@@ -34,7 +34,7 @@ class DecoupageController extends Controller
         $decoupages = Decoupage::where('annee_id', $anneeActive->id)
             ->orderBy('created_at', 'desc')
             ->get();
-
+//dd($decoupages);
         // 🔹 Enregistrer l'action dans les logs
         logAction('Consultation', "Consultation de la liste des découpages pour l'année {$anneeActive->nom}");
 
@@ -164,4 +164,100 @@ class DecoupageController extends Controller
         return redirect()->route('decoupages.index')
             ->with('success', '🗑️ Découpage supprimé avec succès.');
     }
+
+    public function copierDepuisAnneePrecedente()
+{
+    // Vérifier la connexion
+    if (!auth()->check()) {
+        return redirect()->route('login')
+            ->with('error', 'Veuillez vous connecter pour accéder à cette page.');
+    }
+
+    // Vérifier les autorisations
+    if (!in_array(auth()->user()->role, ['admin', 'directeur', 'secretaire'])) {
+        return redirect()->back()
+            ->with('error', 'Accès refusé. Vous n\'avez pas les autorisations nécessaires.');
+    }
+
+    // Année actuellement sélectionnée
+    $anneeActuelle = session('annee_id')
+        ? AnneesScolaire::find(session('annee_id'))
+        : AnneesScolaire::where('active', 1)->first();
+
+    if (!$anneeActuelle) {
+        return back()->with('error', 'Aucune année scolaire active trouvée.');
+    }
+
+    // Chercher l'année précédente
+    $anneePrecedente = AnneesScolaire::where('id', '<', $anneeActuelle->id)
+        ->orderBy('id', 'desc')
+        ->first();
+
+    if (!$anneePrecedente) {
+        return back()->with(
+            'error',
+            'Aucune année scolaire précédente trouvée.'
+        );
+    }
+
+    // Récupérer les découpages de l'année précédente
+    $decoupagesPrecedents = Decoupage::where(
+        'annee_id',
+        $anneePrecedente->id
+    )->get();
+
+    if ($decoupagesPrecedents->isEmpty()) {
+        return back()->with(
+            'warning',
+            "L'année {$anneePrecedente->nom} ne contient aucun découpage à copier."
+        );
+    }
+
+    $nombreAjoutes = 0;
+    $nombreExistants = 0;
+
+    foreach ($decoupagesPrecedents as $decoupage) {
+
+        // Vérifier si ce découpage existe déjà dans l'année actuelle
+        $existe = Decoupage::where('annee_id', $anneeActuelle->id)
+            ->where('type', $decoupage->type)
+            ->where('nom', $decoupage->nom)
+            ->exists();
+
+        if ($existe) {
+            $nombreExistants++;
+            continue;
+        }
+
+        // Copier le découpage
+        Decoupage::create([
+            'annee_id' => $anneeActuelle->id,
+            'type'     => $decoupage->type,
+            'nom'      => $decoupage->nom,
+        ]);
+
+        $nombreAjoutes++;
+    }
+
+    // Log
+    logAction(
+        'Copie',
+        "Copie des découpages de l'année {$anneePrecedente->nom} vers l'année {$anneeActuelle->nom}"
+    );
+
+    if ($nombreAjoutes === 0) {
+        return back()->with(
+            'info',
+            "Tous les découpages de {$anneePrecedente->nom} existent déjà dans {$anneeActuelle->nom}."
+        );
+    }
+
+    $message = "{$nombreAjoutes} découpage(s) copié(s) depuis {$anneePrecedente->nom}.";
+
+    if ($nombreExistants > 0) {
+        $message .= " {$nombreExistants} déjà présent(s) ont été ignoré(s).";
+    }
+
+    return back()->with('success', $message);
+}
 }

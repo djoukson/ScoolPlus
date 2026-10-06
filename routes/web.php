@@ -235,14 +235,14 @@ use App\Http\Controllers\MessageController;
     )->middleware('role:admin,directeur,secretaire')->name('classes.viderEleves');
 
 
-    //parents eleves
+    //parents eleves 
 
     Route::middleware('role:admin,directeur')->group(function () {
         Route::get('/parents', [ParentController::class, 'index'])->name('parents.index');
         Route::post('/parents/store', [ParentController::class, 'store'])->name('parents.store');
         Route::post('/parents/link-child', [ParentController::class, 'linkChild'])->name('parents.linkChild');
     });
-
+    
     Route::post(
     '/classes/{classe}/importer-par-matricules',
     [EleveController::class, 'importerParMatricules']

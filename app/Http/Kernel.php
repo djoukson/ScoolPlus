@@ -51,6 +51,8 @@ class Kernel extends HttpKernel
      */
     protected $routeMiddleware = [
         'auth.session' => \App\Http\Middleware\RedirectIfNotAuthenticated::class, // ton middleware personnalisé
+        'role.admin' => \App\Http\Middleware\EnsureAdminRole::class,
+        'role' => \App\Http\Middleware\EnsureRole::class,
         'guest' => \App\Http\Middleware\RedirectIfNotAuthenticated::class,
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         'throttle' => \Illuminate\Routing\Middleware\ThrottleRequests::class,

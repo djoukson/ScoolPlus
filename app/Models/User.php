@@ -12,19 +12,32 @@ class User extends Authenticatable
 
     protected $table = 'users';
 
-    protected $fillable = [
-        'name',
-        'matricule',
-        'email',
-        'password',
-        'role',
-        'phone',
-        'username',
-        'sexe',
-        'profileimg',
-        'status',
+   protected $fillable = [
+    'matricule',
+    'username',
+    'sexe',
+    'name',
+    'email',
+    'password',
+    'role',
+    'phone',
+    'profileimg',
+    'adresse',
+    'groupesanguin',
+    'status',
+    'must_change_password',
+    'remember_token',
+    'session_version',
+];
+    protected $casts = [
+        'status' => 'boolean',
+        'must_change_password' => 'boolean',
+        'session_version' => 'integer',
     ];
-
+  protected $hidden = [
+        'password',
+        'remember_token',
+    ];
     public function enseignant()
     {
         return $this->hasOne(Enseignant::class);
@@ -35,26 +48,50 @@ class User extends Authenticatable
         return $this->hasMany(Epreuve::class, 'uploaded_by');
     }
 
-    public static function generateMatricule($prefix = 'ENS')
-    {
-        // Récupère le dernier matricule ENS
-        $lastMatricule = User::where('matricule', 'like', $prefix.'%')
-            ->orderBy('matricule', 'desc')
-            ->value('matricule');
+   public static function generateMatricule($prefix = 'ENS')
+{
+    $lastMatricule = User::where('matricule', 'like', $prefix . '%')
+        ->orderByRaw("CAST(SUBSTRING(matricule, " . (strlen($prefix) + 1) . ") AS UNSIGNED) DESC")
+        ->value('matricule');
 
-        if ($lastMatricule) {
-            // Extraire les 2 derniers chiffres
-            $number = intval(substr($lastMatricule, -2)) + 1;
-        } else {
-            $number = 1;
-        }
-
-        // Limite à 99 (optionnel)
-        if ($number > 99) {
-            throw new \Exception('Limite de matricules atteinte');
-        }
-
-        return $prefix . str_pad($number, 2, '0', STR_PAD_LEFT);
+    if ($lastMatricule) {
+        $number = intval(substr($lastMatricule, strlen($prefix))) + 1;
+    } else {
+        $number = 1;
     }
+
+    if ($number > 9999) {
+        throw new \Exception('Limite de matricules atteinte');
+    }
+
+    return $prefix . str_pad($number, 2, '0', STR_PAD_LEFT);
+}
+
+public function enfants()
+{
+    return $this->belongsToMany(
+        Eleve::class,
+        'parent_eleve_user',
+        'user_id',
+        'eleve_id'
+    )
+    ->withPivot('relation')
+    ->withTimestamps();
+}
+
+public function conversations()
+{
+    return $this->belongsToMany(
+        Conversation::class,
+        'conversation_participants'
+    )
+    ->withPivot('last_read_at')
+    ->withTimestamps();
+}
+
+public function messages()
+{
+    return $this->hasMany(Message::class, 'sender_id');
+}
 
 }

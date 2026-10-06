@@ -20,6 +20,7 @@ class AuthController extends Controller
 
         if (Auth::attempt($credentials)) {
             $request->session()->regenerate();
+            $request->session()->put('auth_session_version', (int) Auth::user()->session_version);
             return redirect()->intended('/settings'); // ou dashboard
         }
 

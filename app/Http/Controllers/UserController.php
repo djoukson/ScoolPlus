@@ -6,14 +6,19 @@ use App\Models\User;
 use App\Models\UserLog;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class UserController extends Controller
 {
     public function index()
     {
+          
+
         // 1️⃣ Vérifie d'abord si l'utilisateur est connecté
         if (!auth()->check()) {
             return redirect()->route('login')->with('error', 'Veuillez vous connecter pour accéder à cette page.');
@@ -44,21 +49,24 @@ class UserController extends Controller
         if (!in_array(auth()->user()->role, ['admin', 'directeur'])) {
             return redirect()->back()->with('error', 'Accès refusé. Vous n\'avez pas les autorisations nécessaires.');
         }
+
+       
         try {
             $validated = $request->validate([
                 'name'       => 'required|string|max:255',
                 'email'      => 'nullable|email|unique:users,email',
-                'password'   => 'nullable|string|min:6',
-                'role'       => 'required|in:admin,professeur,comptable,directeur,secretaire',
+                'role'       => 'required|in:admin,professeur,comptable,directeur,secretaire,parent',
                 'phone'      => 'nullable|string|max:30',
                 'username'   => 'nullable|string|max:50|unique:users,username',
                 'sexe'       => 'nullable|in:Masculin,Feminin',
                 'profileimg' => 'nullable|image|mimes:jpg,jpeg,png,gif,webp|max:2048',
             ]);
-
-            $validated['matricule'] = User::generateMatricule('SP');
-            $validated['password'] = Hash::make($validated['password'] ?? 'sp12345$');
-
+            $temporaryPassword = bin2hex(random_bytes(16));
+            $validated['status'] = 0;
+            $validated['must_change_password'] = true;
+            $validated['matricule'] = User::generateMatricule('USSP');
+            $validated['password'] = Hash::make($temporaryPassword);
+ 
             $directory = storage_path('app/public/profile_images');
             if (!is_dir($directory)) {
                 mkdir($directory, 0775, true);
@@ -71,11 +79,18 @@ class UserController extends Controller
                 $validated['profileimg'] = 'storage/profile_images/' . $filename;
             }
 
-            $user = User::create($validated);
+
+    $user = User::create($validated);
+
 
             logAction('Création', "Ajout d’un nouvel utilisateur : {$user->name} avec le rôle {$user->role}");
 
-            return redirect()->route('users')->with('success', 'Utilisateur ajouté avec succès ✅');
+            $response = redirect()->route('users')->with('success', 'Utilisateur ajouté avec succès ✅');
+            if ($temporaryPassword !== null) {
+                $response->with('temporary_password', $temporaryPassword);
+            }
+
+            return $response;
         } catch (\Exception $e) {
             return redirect()->back()
                 ->withErrors(['error' => 'Échec lors de l’ajout : ' . $e->getMessage()])
@@ -110,16 +125,21 @@ class UserController extends Controller
             $validated = $request->validate([
                 'name'       => 'nullable|string|max:255',
                 'email'      => 'nullable|email|unique:users,email,' . $user->id,
-                'password'   => 'nullable|string|min:6',
-                'role'       => 'required|in:admin,professeur,comptable,directeur,secretaire',
+                'password'   => 'nullable|string|min:8',
+                'role'       => 'required|in:admin,professeur,comptable,directeur,secretaire,parent',
                 'phone'      => 'nullable|string|max:30',
                 'username'   => 'nullable|string|max:50|unique:users,username,' . $user->id,
                 'sexe'       => 'nullable|in:Masculin,Feminin',
                 'profileimg' => 'nullable|image|mimes:jpg,jpeg,png,gif,webp|max:2048',
             ]);
 
+            $temporaryPassword = null;
             if (!empty($validated['password'])) {
+                $temporaryPassword = $validated['password'];
                 $validated['password'] = Hash::make($validated['password']);
+                $validated['must_change_password'] = true;
+                $validated['remember_token'] = Str::random(60);
+                $validated['session_version'] = ((int) $user->session_version) + 1;
             } else {
                 unset($validated['password']);
             }
@@ -147,7 +167,12 @@ class UserController extends Controller
 
             logAction('Modification', "Mise à jour de l’utilisateur : {$user->name} ({$user->role})");
 
-            return redirect()->route('users')->with('success', 'Utilisateur mis à jour avec succès ✅');
+            $response = redirect()->route('users')->with('success', 'Utilisateur mis à jour avec succès ✅');
+            if ($temporaryPassword !== null) {
+                $response->with('temporary_password', $temporaryPassword);
+            }
+
+            return $response;
         } catch (\Exception $e) {
             return redirect()->back()
                 ->withErrors(['error' => 'Échec lors de la mise à jour : ' . $e->getMessage()])
@@ -175,67 +200,132 @@ class UserController extends Controller
 
     public function login()
     {
+      
+
         logAction('Consultation', 'Accès à la page de connexion');
         return view('users.login');
     }
 
     public function verifylogins(Request $request)
-    {
+{
+    $request->validate([
+        'email'    => 'required|string',
+        'password' => 'required|string',
+    ]);
 
-        $request->validate([
-            'email'    => 'required|string',
-            'password' => 'required|string',
-        ]);
+    $ipAttemptKey = 'login-ip-failures:' . hash('sha256', $request->ip());
 
-        $loginInput = $request->email;
+    $loginInput = $request->email;
 
-        if (filter_var($loginInput, FILTER_VALIDATE_EMAIL)) {
-            $user = User::where('email', $loginInput)->first();
-        } elseif (preg_match('/^(SP|ENS)/i', $loginInput)) {
-            $user = User::where('matricule', $loginInput)->first();
-        } else {
-            $user = User::where('username', $loginInput)->first();
-        }
-
-        $remember = $request->has('remember'); // ✅ récupère la valeur du checkbox
-
-
-        if ($user && Hash::check($request->password, $user->password)) {
-
-            if (!$user->status) {
-                logAction(
-                    'Connexion refusée',
-                    "Utilisateur désactivé : {$user->name} ({$user->role})"
-                );
-
-                return back()->with(
-                    'danger',
-                    'Votre compte est désactivé. Veuillez contacter l’administration ❌'
-                );
-            }
-
-            Auth::login($user, $remember);
-            $request->session()->regenerate();
-
-            logAction('Connexion', "Connexion réussie de {$user->name} ({$user->role})");
-
-            $request->session()->put('user_identifier', $user->email ?? $user->username ?? $user->matricule);
-            $request->session()->put('user_role', $user->role ?? 'undefined');
-
-            if (Hash::check('sp12345$', $user->password)) {
-                return redirect()
-                    ->route('settings.index')
-                    ->with('warning', 'Veuillez changer votre mot de passe par défaut ⚠️');
-            }
-//dd($user);
-            return  redirect()->intended('/')
-                ->with('success', 'Connexion réussie. Bienvenue ' . $user->name . ' 👋');
-        }
-
-        logAction('Échec de connexion', "Tentative échouée avec identifiant : $loginInput");
-
-        return back()->with('danger', 'Les informations de connexion sont incorrectes ❌');
+    if (filter_var($loginInput, FILTER_VALIDATE_EMAIL)) {
+        $user = User::where('email', $loginInput)->first();
+    } elseif (preg_match('/^(SP|ENS)/i', $loginInput)) {
+        $user = User::where('matricule', $loginInput)->first();
+    } else {
+        $user = User::where('username', $loginInput)->first();
     }
+
+    $attemptKey = 'login-failures:' . ($user
+        ? 'user:' . $user->id
+        : 'identifier:' . hash('sha256', mb_strtolower(trim($loginInput))));
+
+    // Se souvenir de moi
+    $remember = $request->boolean('remember');
+
+    if ($user && Hash::check($request->password, $user->password)) {
+        RateLimiter::clear($attemptKey);
+        RateLimiter::clear($ipAttemptKey);
+
+        if (!$user->status) {
+            logAction(
+                'Connexion refusée',
+                "Utilisateur désactivé : {$user->name} ({$user->role})"
+            );
+
+            return back()->with(
+                'danger',
+                'Votre compte est désactivé. Veuillez contacter l’administration ❌'
+            );
+        }
+
+        // Connexion avec ou sans "Se souvenir de moi"
+        Auth::login($user, $remember);
+
+        $request->session()->regenerate();
+        $request->session()->put('auth_session_version', (int) $user->session_version);
+
+        logAction(
+            'Connexion',
+            "Connexion réussie de {$user->name} ({$user->role})"
+        );
+
+        $request->session()->put(
+            'user_identifier',
+            $user->email ?? $user->username ?? $user->matricule
+        );
+
+        $request->session()->put(
+            'user_role',
+            $user->role ?? 'undefined'
+        );
+
+        if ($user->must_change_password) {
+            return redirect()
+                ->route('settings.index', ['tab' => 'securite'])
+                ->with(
+                    'warning',
+                    'Veuillez changer votre mot de passe temporaire avant de continuer.'
+                );
+        }
+
+        return redirect()
+            ->intended('/')
+            ->with(
+                'success',
+                'Connexion réussie. Bienvenue ' . $user->name . ' 👋'
+            );
+    }
+
+    logAction(
+        'Échec de connexion',
+        "Tentative échouée avec identifiant : $loginInput"
+    );
+
+    if (RateLimiter::tooManyAttempts($ipAttemptKey, 10)) {
+        throw new ThrottleRequestsException(
+            'Trop de tentatives de connexion.',
+            null,
+            ['Retry-After' => (string) RateLimiter::availableIn($ipAttemptKey)]
+        );
+    }
+
+    RateLimiter::hit($ipAttemptKey, 60);
+
+    RateLimiter::hit($attemptKey, 15 * 60);
+    $failedAttempts = RateLimiter::attempts($attemptKey);
+    $remainingAttempts = max(0, 5 - $failedAttempts);
+
+    if ($user && $user->status && $remainingAttempts === 0) {
+        $user->status = 0;
+        $user->save();
+
+        logAction(
+            'Compte désactivé',
+            "Désactivation automatique après cinq échecs de connexion : {$user->name} ({$user->role})"
+        );
+
+        return back()
+            ->withInput($request->only('email', 'remember'))
+            ->with('danger', 'Compte désactivé après 5 tentatives échouées. Veuillez contacter l’administration.');
+    }
+
+    return back()
+        ->withInput($request->only('email', 'remember'))
+        ->with(
+            'danger',
+            "Les informations de connexion sont incorrectes. Il vous reste {$remainingAttempts} tentative(s)."
+        );
+}
 
     public function logoutt(Request $request)
     {
@@ -261,12 +351,18 @@ class UserController extends Controller
 
         try {
             $user = User::findOrFail($id);
-            $user->password = Hash::make('sp12345$');
+            $temporaryPassword = bin2hex(random_bytes(16));
+            $user->password = Hash::make($temporaryPassword);
+            $user->must_change_password = true;
+            $user->remember_token = Str::random(60);
+            $user->session_version = ((int) $user->session_version) + 1;
             $user->save();
 
             logAction('Réinitialisation mot de passe', "Mot de passe réinitialisé pour {$user->name}");
 
-            return redirect()->route('users')->with('success', 'Mot de passe réinitialisé avec succès pour ' . $user->name);
+            return redirect()->route('users')
+                ->with('success', 'Mot de passe réinitialisé pour ' . $user->name)
+                ->with('temporary_password', $temporaryPassword);
         } catch (\Exception $e) {
             return redirect()->back()->withErrors(['error' => 'Erreur : ' . $e->getMessage()]);
         }
@@ -363,6 +459,12 @@ class UserController extends Controller
 
     public function toggleStatus($id)
     {
+        abort_unless(
+            in_array(auth()->user()?->role, ['admin', 'directeur'], true),
+            403,
+            'Accès réservé à l’administration.'
+        );
+
         $user = User::findOrFail($id);
 
         // Sécurité : empêcher la désactivation de soi-même (optionnel)
@@ -371,19 +473,37 @@ class UserController extends Controller
         }
 
         $user->status = !$user->status;
+        $temporaryPassword = null;
+        if ($user->status && $user->role === 'professeur') {
+            $temporaryPassword = bin2hex(random_bytes(16));
+            $user->password = Hash::make($temporaryPassword);
+            $user->must_change_password = true;
+            $user->remember_token = Str::random(60);
+            $user->session_version = ((int) $user->session_version) + 1;
+        }
         $user->save();
+
+        if ($user->role === 'professeur' && $user->matricule) {
+            \App\Models\Enseignant::where('matricule', $user->matricule)
+                ->update(['statut' => $user->status]);
+        }
 
         logAction(
             'Changement de statut',
             "Utilisateur {$user->name} " . ($user->status ? 'activé' : 'désactivé')
         );
 
-        return back()->with(
+        $response = back()->with(
             'success',
             $user->status
                 ? 'Utilisateur activé avec succès ✅'
                 : 'Utilisateur désactivé avec succès 🚫'
         );
+        if ($temporaryPassword !== null) {
+            $response->with('temporary_password', $temporaryPassword);
+        }
+
+        return $response;
     }
 
 

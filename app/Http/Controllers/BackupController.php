@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\DB;
 use App\Models\Backup;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Storage;
+use Symfony\Component\Process\Process;
 
 
 use Spatie\DbDumper\Databases\MySql;
@@ -26,9 +27,16 @@ class BackupController extends Controller
 
     public function create()
     {
+        $zipPassword = config('services.backup_archive_password');
+        if (!is_string($zipPassword) || strlen($zipPassword) < 32) {
+            return redirect()->back()->with(
+                'error',
+                'La clé de chiffrement des sauvegardes est absente ou trop courte. Configurez BACKUP_ARCHIVE_PASSWORD.'
+            );
+        }
+
         $timestamp = now()->format('Y_m_d_His');
         $filename  = "backup_{$timestamp}.sql";
-        $zipPassword = 'Schoolplus12398$$'; // 🔑 Change le mot de passe ici
 
         /* ===============================
            📦 1. Sauvegarde serveur
@@ -103,14 +111,18 @@ class BackupController extends Controller
             =============================== */
             $zipFile = $projectDir . DIRECTORY_SEPARATOR . $filename . '.7z';
 
-            $sevenZip = '"C:\Program Files\7-Zip\7z.exe"';
+            $process = new Process([
+                'C:\\Program Files\\7-Zip\\7z.exe',
+                'a',
+                '-t7z',
+                $zipFile,
+                $projectPath,
+                '-p' . $zipPassword,
+                '-mhe=on',
+            ]);
+            $process->run();
 
-            // Vérifie que 7z.exe est installé et accessible via PATH
-            $command = "$sevenZip a -t7z \"$zipFile\" \"$projectPath\" -p$zipPassword -mhe=on";
-
-            exec($command, $output, $returnVar);
-
-            if ($returnVar !== 0) {
+            if (!$process->isSuccessful()) {
                 return redirect()->back()->with('error', 'Erreur lors de la création du 7-Zip protégé.');
             }
 

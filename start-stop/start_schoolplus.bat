@@ -6,7 +6,7 @@ start "" "C:\wamp64\wampmanager.exe"
 timeout /t 8 >nul
 
 :: Aller dans le projet Laravel
-cd /d C:\wamp64\www\schoolplus
+cd /d C:\wamp64\www\schoolpluss
 
 :: Lancer Laravel dans une nouvelle fenêtre
 start cmd /k "php artisan serve"
