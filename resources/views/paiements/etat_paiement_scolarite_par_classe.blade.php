@@ -92,6 +92,7 @@
                     <tr>
                         <th>#</th>
                         <th>Nom & Prénom</th>
+                        <th>Type d’inscription</th>
                         <th>Bourse</th>
                         <th>Montant total</th>
                         <th>Payé</th>
@@ -115,6 +116,14 @@
                             <td>
                                 {{ $item['eleve']->nom }}
                                 {{ $item['eleve']->prenom }}
+                            </td>
+
+                            <td>
+                                @if($item['type_inscription'] === 'Réinscrit')
+                                    <span class="badge bg-secondary">Réinscrit · sans frais d’inscription</span>
+                                @else
+                                    <span class="badge bg-primary">Nouveau</span>
+                                @endif
                             </td>
 
 
@@ -162,7 +171,7 @@
 
                     @empty
                         <tr>
-                            <td colspan="6" class="text-center text-muted">
+                            <td colspan="7" class="text-center text-muted">
                                 Aucun élève trouvé avec ces critères.
                             </td>
                         </tr>

@@ -79,7 +79,9 @@ class PaiementController extends Controller
                 ->get();
 
             // 🔹 Total par type de frais
-            $totalInscription = $montantsFrais->filter(fn($m) => $m->frais->libelle === "Frais d'Inscription")->sum('montant');
+            $totalInscription = $inscription?->isReinscrit()
+                ? 0
+                : $montantsFrais->filter(fn($m) => $m->frais->libelle === "Frais d'Inscription")->sum('montant');
             $totalScolarite = $montantsFrais->filter(fn($m) => $m->frais->libelle === "Scolarité")->sum('montant');
 
             // 🔹 Total payé par type
@@ -87,17 +89,22 @@ class PaiementController extends Controller
             $totalPayéScolarite = $paiementsEleve->filter(fn($p) => $p->frais->libelle === "Scolarité")->sum('montant_paye');
 
             // 🔹 Vérifier s’il a une bourse active
-            $attribution = AttributionBourse::with('bourse.frais')
-                ->where('inscription_id', $inscription->id)
-                ->where('etat','active')
-                ->latest('date_attribution')
-                ->first();
+            $attribution = $inscription
+                ? AttributionBourse::with('bourse.frais')
+                    ->where('inscription_id', $inscription->id)
+                    ->where('etat', 'active')
+                    ->latest('date_attribution')
+                    ->first()
+                : null;
 
             $bourse = $attribution?->bourse;
             $reduction = 0;
 
             if ($bourse) {
                 foreach ($bourse->frais as $fraisBourse) {
+                    if ($inscription?->isReinscrit() && $fraisBourse->libelle === "Frais d'Inscription") {
+                        continue;
+                    }
                     $montantFrais = $montantsFrais->firstWhere('frais_id', $fraisBourse->id)?->montant ?? 0;
                     $pourcentage = $fraisBourse->pivot->pourcentage ?? 0;
                     $reduction += $montantFrais * $pourcentage / 100;
@@ -114,6 +121,7 @@ class PaiementController extends Controller
                 'annee' => $annee,
                 'paiements' => $paiementsEleve,
                 'bourse' => $bourse,
+                'type_inscription' => $inscription?->type_inscription ?? 'Nouveau',
                 'total_paye' => $totalPayé,
                 'reste_total' => $resteTotal,
             ];
@@ -166,7 +174,9 @@ class PaiementController extends Controller
             ->where('annee_id', $annee_id)
             ->get();
 
-        $fraisInscriptionMontant = $montantsFrais->filter(fn($m) => $m->frais->libelle === "Frais d'Inscription")->sum('montant');
+        $fraisInscriptionMontant = $inscription->isReinscrit()
+            ? 0
+            : $montantsFrais->filter(fn($m) => $m->frais->libelle === "Frais d'Inscription")->sum('montant');
         $scolariteMontant        = $montantsFrais->filter(fn($m) => $m->frais->libelle === "Scolarité")->sum('montant');
 
         // 🔹 5️⃣ Vérifier s’il a une bourse active
@@ -186,6 +196,9 @@ class PaiementController extends Controller
                 $pourcentage = $fraisBourse->pivot->pourcentage ?? 0;
 
                 if ($fraisBourse->libelle === "Frais d'Inscription") {
+                    if ($inscription->isReinscrit()) {
+                        continue;
+                    }
                     $reductionInscription += $montantFrais * $pourcentage / 100;
                 } elseif ($fraisBourse->libelle === "Scolarité") {
                     $reductionScolarite += $montantFrais * $pourcentage / 100;
@@ -205,7 +218,9 @@ class PaiementController extends Controller
             ->sum('montant_paye');
 
         // 🔹 7️⃣ Calculer le reste à payer après réduction
-        $restantInscription = ($fraisInscriptionMontant - $reductionInscription) - $totalPayeInscription;
+        $restantInscription = $inscription->isReinscrit()
+            ? 0
+            : ($fraisInscriptionMontant - $reductionInscription) - $totalPayeInscription;
         $restantScolarite   = ($scolariteMontant - $reductionScolarite) - $totalPayeScolarite;
 
         logAction('Consultation', "Affichage du détail des paiements de l'élève {$eleve->nom} {$eleve->prenom}, classe : {$inscription->classe->nom}, année : {$anneeActive->annee}.");
@@ -219,6 +234,7 @@ class PaiementController extends Controller
             'totalPayeScolarite' => $totalPayeScolarite,
             'restantScolarite' => $restantScolarite,
             'bourse' => $bourse,
+            'typeInscription' => $inscription->type_inscription,
             'anneeActive' => $anneeActive,
         ]);
     }
@@ -293,6 +309,27 @@ class PaiementController extends Controller
 
         $classeId = $inscription->classe_id;
         $anneeId  = $inscription->annee_id;
+
+        $frais = Frais::findOrFail($fraisId);
+        if ($inscription->isReinscrit() && $frais->libelle === "Frais d'Inscription") {
+            $dejaPaye = Paiement::where('eleve_id', $eleveId)
+                ->where('classe_id', $classeId)
+                ->where('annee_id', $anneeId)
+                ->where('frais_id', $fraisId)
+                ->sum('montant_paye');
+
+            return response()->json([
+                'eleve' => $eleve->nom . ' ' . $eleve->prenom,
+                'classe' => $inscription->classe->nom ?? '',
+                'annee' => $anneeActive->nom ?? '',
+                'frais' => $frais->libelle,
+                'total' => 0,
+                'reduction_bourse' => 0,
+                'deja_paye' => $dejaPaye,
+                'reste' => 0,
+                'exonere' => true,
+            ]);
+        }
 
         // 🔹 4️⃣ Montant prévu
         $montantTotal = MontantFrais::where('classe_id', $classeId)
@@ -380,7 +417,16 @@ class PaiementController extends Controller
             'mode_paiement' => ['required', 'in:Espèces,Mobile Money,Chèque,Virement'],
         ]);
 
-        Paiement::create($validated);
+        $inscription = Inscription::where('eleve_id', $validated['eleve_id'])
+            ->where('classe_id', $validated['classe_id'])
+            ->where('annee_id', $validated['annee_id'])
+            ->firstOrFail();
+        $fraisSelectionne = Frais::findOrFail($validated['frais_id']);
+        if ($inscription->isReinscrit() && $fraisSelectionne->libelle === "Frais d'Inscription") {
+            return back()->withInput()->withErrors(['frais_id' => 'Les frais d’inscription ne sont pas dus pour un élève réinscrit.']);
+        }
+
+        Paiement::create($validated + ['inscription_id' => $inscription->id]);
         // 🔹 Log enregistrement paiement
         $eleve = Eleve::find($request->eleve_id);
         logAction('Création', "Nouveau paiement enregistré pour l’élève {$eleve->nom} {$eleve->prenom}, montant : {$request->montant_paye} FCFA, mode : {$request->mode_paiement}, année : {$request->annee_id}, classe : {$request->classe_id}.");
@@ -448,7 +494,16 @@ class PaiementController extends Controller
             'mode_paiement' => 'required|string|max:50',
         ]);
 
-        $paiement->update($validated);
+        $inscription = Inscription::where('eleve_id', $validated['eleve_id'])
+            ->where('classe_id', $validated['classe_id'])
+            ->where('annee_id', $validated['annee_id'])
+            ->firstOrFail();
+        $fraisSelectionne = Frais::findOrFail($validated['frais_id']);
+        if ($inscription->isReinscrit() && $fraisSelectionne->libelle === "Frais d'Inscription") {
+            return back()->withInput()->withErrors(['frais_id' => 'Les frais d’inscription ne sont pas dus pour un élève réinscrit.']);
+        }
+
+        $paiement->update($validated + ['inscription_id' => $inscription->id]);
         logAction('Modification', "Paiement ID {$paiement->id} modifié pour l’élève {$paiement->eleve->nom} {$paiement->eleve->prenom}. Ancien montant : {$ancienMontant} FCFA, nouveau montant : {$paiement->montant_paye} FCFA.");
 
         // Rediriger vers la page des paiements de l'élève
@@ -547,7 +602,9 @@ class PaiementController extends Controller
             ->where('annee_id', $annee_id)
             ->get();
 
-        $fraisInscriptionMontant = $montantsFrais->filter(fn($m) => $m->frais->libelle === "Frais d'Inscription")->sum('montant');
+        $fraisInscriptionMontant = $inscription->isReinscrit()
+            ? 0
+            : $montantsFrais->filter(fn($m) => $m->frais->libelle === "Frais d'Inscription")->sum('montant');
         $scolariteMontant        = $montantsFrais->filter(fn($m) => $m->frais->libelle === "Scolarité")->sum('montant');
 
         // 🔹 5️⃣ Vérifier s’il a une bourse active
@@ -567,6 +624,9 @@ class PaiementController extends Controller
                 $pourcentage = $fraisBourse->pivot->pourcentage ?? 0;
 
                 if ($fraisBourse->libelle === "Frais d'Inscription") {
+                    if ($inscription->isReinscrit()) {
+                        continue;
+                    }
                     $reductionInscription += $montantFrais * $pourcentage / 100;
                 } elseif ($fraisBourse->libelle === "Scolarité") {
                     $reductionScolarite += $montantFrais * $pourcentage / 100;
@@ -586,7 +646,9 @@ class PaiementController extends Controller
             ->sum('montant_paye');
 
         // 🔹 7️⃣ Calcul du reste à payer après application de la bourse
-        $restantInscription = ($fraisInscriptionMontant - $reductionInscription) - $totalPayeInscription;
+        $restantInscription = $inscription->isReinscrit()
+            ? 0
+            : ($fraisInscriptionMontant - $reductionInscription) - $totalPayeInscription;
         $restantScolarite   = ($scolariteMontant - $reductionScolarite) - $totalPayeScolarite;
 
         // 🔹 8️⃣ Infos de l’école
@@ -609,7 +671,8 @@ class PaiementController extends Controller
             'totalScolarite' => $scolariteMontant,
             'totalPayeScolarite' => $totalPayeScolarite,
             'restantScolarite' => $restantScolarite,
-            'bourse' => $bourse
+            'bourse' => $bourse,
+            'typeInscription' => $inscription->type_inscription,
         ]);
     }
 
@@ -643,8 +706,18 @@ class PaiementController extends Controller
 
         foreach ($classes as $classe) {
             $classe->effectif = $classe->inscriptions_count;
-            $classe->total_frais = $classe->montantsFrais->sum('montant');
-            $classe->prevision = $classe->total_frais * $classe->effectif;
+            $montantInscription = $classe->montantsFrais
+                ->filter(fn($montant) => $montant->frais?->libelle === "Frais d'Inscription")
+                ->sum('montant');
+            $montantScolarite = $classe->montantsFrais
+                ->filter(fn($montant) => $montant->frais?->libelle !== "Frais d'Inscription")
+                ->sum('montant');
+            $nouveaux = Inscription::where('classe_id', $classe->id)
+                ->where('annee_id', $anneeActive->id)
+                ->where('type_inscription', 'Nouveau')
+                ->count();
+            $classe->total_frais = $montantScolarite + ($classe->effectif > 0 ? $montantInscription * $nouveaux / $classe->effectif : 0);
+            $classe->prevision = $montantScolarite * $classe->effectif + $montantInscription * $nouveaux;
 
             // Somme totale déjà payée pour cette classe
             $classe->montant_paye = Paiement::where('classe_id', $classe->id)
@@ -716,13 +789,13 @@ class PaiementController extends Controller
                 ->when($anneeId, fn($q) => $q->where('annee_id', $anneeId))
                 ->get();
 
-            $montantTotal = $montantsFrais->sum('montant');
+            $montantTotal = $montantsFrais
+                ->reject(fn($montant) => $inscription->isReinscrit() && $montant->frais?->libelle === "Frais d'Inscription")
+                ->sum('montant');
 
 
             // ---- Payé par l'élève
-            $montantPaye = Paiement::where('eleve_id', $inscription->eleve_id)
-                ->where('classe_id', $classeId)
-                ->when($anneeId, fn($q) => $q->where('annee_id', $anneeId))
+            $montantPaye = Paiement::where('inscription_id', $inscription->id)
                 ->sum('montant_paye');
 
 
@@ -741,6 +814,9 @@ class PaiementController extends Controller
 
             if ($bourse) {
                 foreach ($bourse->frais as $fraisBourse) {
+                    if ($inscription->isReinscrit() && $fraisBourse->libelle === "Frais d'Inscription") {
+                        continue;
+                    }
                     $montantFrais = $montantsFrais->firstWhere('frais_id', $fraisBourse->id)?->montant ?? 0;
                     $pourcentage  = $fraisBourse->pivot->pourcentage ?? 0;
 
@@ -755,6 +831,7 @@ class PaiementController extends Controller
 
             return [
                 'eleve'               => $inscription->eleve,
+                'type_inscription' => $inscription->type_inscription,
                 'montant_total'      => $montantTotal,
                 'montant_paye'       => $montantPaye,
                 'reste'              => $reste,

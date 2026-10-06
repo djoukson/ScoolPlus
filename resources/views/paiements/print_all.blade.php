@@ -155,6 +155,7 @@
         <tr><th>Élève</th><td>{{ $eleve->nom.' '.$eleve->prenom }}</td></tr>
         <tr><th>Classe</th><td>{{ $eleve->classe->nom ?? ($eleve->inscriptions->last()->classe->nom ?? '—') }}</td></tr>
         <tr><th>Matricule</th><td>{{ $eleve->matricule ?? '—' }}</td></tr>
+        <tr><th>Type d’inscription</th><td>{{ $typeInscription ?? 'Nouveau' }}</td></tr>
     </table>
 
     <!-- 🔹 Résumé -->
@@ -162,8 +163,14 @@
         <div class="summary-box">
             <h4>Frais d'inscription</h4>
             @php
-                $reducInscription = $bourse?->frais->firstWhere('libelle', "Frais d'Inscription")->pivot->pourcentage ?? 0;
+                $reducInscription = ($typeInscription ?? null) === 'Réinscrit'
+                    ? 0
+                    : ($bourse?->frais->firstWhere('libelle', "Frais d'Inscription")->pivot->pourcentage ?? 0);
             @endphp
+
+            @if(($typeInscription ?? null) === 'Réinscrit')
+                <p><strong>Exonération :</strong> frais d’inscription non dus pour un élève réinscrit.</p>
+            @endif
 
             @if($reducInscription > 0)
                 <p class="mb-1">
@@ -211,7 +218,7 @@
         </tr>
         </thead>
         <tbody>
-        @foreach($eleve->paiements as $paiement)
+        @foreach($eleve->paiements->where('annee_id', $annee->id) as $paiement)
             <tr>
                 <td>{{ $loop->iteration }}</td>
                 <td>{{ $paiement->frais->libelle ?? '—' }}</td>

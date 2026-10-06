@@ -55,23 +55,40 @@ class ClasseController extends Controller
 
     public function listeclasses()
     {
-        // ✅ Récupérer l'année scolaire active : session ou active par défaut
+      // 📌 Année active
         $anneeActive = session('annee_id')
             ? AnneesScolaire::find(session('annee_id'))
             : AnneesScolaire::where('active', 1)->first();
 
-        $anneeId = $anneeActive ? $anneeActive->id : null;
+        $enseignants = Enseignant::all();
+        $annees = AnneesScolaire::all();
 
-        // ✅ Charger uniquement les classes de cette année
+        // ✅ Récupérer tous les niveaux dynamiques
+        $niveaux = Niveau::orderBy('nom')->get();
+
+        // 📌 Classes de l'année active
         $classes = Classe::with(['enseignant', 'annee'])
             ->withCount('inscriptions')
-            ->when($anneeId, function ($query) use ($anneeId) {
-                $query->where('annee_id', $anneeId);
+            ->when($anneeActive, function ($query) use ($anneeActive) {
+                $query->where('annee_id', $anneeActive->id);
             })
             ->get();
-        logAction('Consultation', "Liste des classes affichée pour l'année {$anneeActive->nom}");
 
-        return view('classes.list', compact('classes', 'anneeActive'));
+
+        logAction(
+            'Consultation des classes',
+            "Affichage des classes pour l'année scolaire {$anneeActive->nom}"
+        );
+
+        return view('classes.list', compact(
+            'classes',
+            'enseignants',
+            'annees',
+            'anneeActive',
+            'niveaux',
+        ));
+
+       // return view('classes.list', compact('classes', 'anneeActive'));
     }
 
 
@@ -140,6 +157,49 @@ class ClasseController extends Controller
         return redirect()->route('classes.index')
             ->with('success', 'Classe supprimée avec succès.');
     }
+public function supprimerClassesVides()
+{
+    // Année active
+    $anneeActive = session('annee_id')
+        ? AnneesScolaire::find(session('annee_id'))
+        : AnneesScolaire::where('active', 1)->first();
+
+    if (!$anneeActive) {
+        return redirect()->route('classes.index')
+            ->with('error', 'Aucune année scolaire active.');
+    }
+
+    // Récupérer uniquement les classes de l'année active
+    $classes = Classe::where('annee_id', $anneeActive->id)
+        ->doesntHave('inscriptions')
+        ->get();
+
+    if ($classes->isEmpty()) {
+        return redirect()->route('classes.index')
+            ->with('error', "Aucune classe vide à supprimer pour l'année {$anneeActive->nom}.");
+    }
+
+    $nombre = $classes->count();
+
+    // Garder les noms pour le journal
+    $nomsClasses = $classes->pluck('nom')->implode(', ');
+
+    // Suppression
+    foreach ($classes as $classe) {
+        $classe->delete();
+    }
+
+    logAction(
+        'Suppression',
+        "{$nombre} classe(s) vide(s) supprimée(s) pour l'année {$anneeActive->nom} : {$nomsClasses}"
+    );
+
+    return redirect()->route('classes.index')
+        ->with(
+            'success',
+            "{$nombre} classe(s) vide(s) supprimée(s) pour l'année {$anneeActive->nom}."
+        );
+}
 
     public function show(Classe $classe)
     {
@@ -155,6 +215,76 @@ class ClasseController extends Controller
         ]);
     }
 
+public function copierClasses()
+{
+    // Année active
+    $anneeActive = session('annee_id')
+        ? AnneesScolaire::find(session('annee_id'))
+        : AnneesScolaire::where('active', 1)->first();
+
+    if (!$anneeActive) {
+        return redirect()->route('classes.index')
+            ->with('error', 'Aucune année scolaire active.');
+    }
+
+    // Année précédente
+    $anneePrecedente = AnneesScolaire::where('id', '<', $anneeActive->id)
+        ->orderByDesc('id')
+        ->first();
+
+    if (!$anneePrecedente) {
+        return redirect()->route('classes.index')
+            ->with('error', 'Aucune année scolaire précédente trouvée.');
+    }
+
+    // Classes de l'année précédente
+    $classes = Classe::where('annee_id', $anneePrecedente->id)->get();
+
+    if ($classes->isEmpty()) {
+        return redirect()->route('classes.index')
+            ->with('error', "Aucune classe trouvée pour l'année {$anneePrecedente->nom}.");
+    }
+
+    $nombre = 0;
+
+    foreach ($classes as $classe) {
+
+        // Éviter les doublons
+        $existe = Classe::where('annee_id', $anneeActive->id)
+            ->where('nom', $classe->nom)
+            ->where('niveau_id', $classe->niveau_id)
+            ->exists();
+
+        if (!$existe) {
+
+            Classe::create([
+                'nom'             => $classe->nom,
+                'niveau_id'       => $classe->niveau_id,
+                'enseignant_id'   => null,
+                'annee_id'        => $anneeActive->id,
+
+                // ✅ Copie simplement le texte
+                'type_decoupage'  => $classe->type_decoupage,
+
+                // ❌ On ne copie plus decoupage_id
+                'decoupage_id'    => null,
+            ]);
+
+            $nombre++;
+        }
+    }
+
+    logAction(
+        'Création',
+        "{$nombre} classe(s) copiée(s) de l'année {$anneePrecedente->nom} vers {$anneeActive->nom}"
+    );
+
+    return redirect()->route('classes.index')
+        ->with(
+            'success',
+            "{$nombre} classe(s) copiée(s) de {$anneePrecedente->nom} vers {$anneeActive->nom}."
+        );
+}
     public function affecterEnseignant(Classe $classe)
     {
         logAction('Consultation', "Ouverture de la page d’affectation d’un enseignant à la classe {$classe->nom}");
@@ -429,29 +559,22 @@ class ClasseController extends Controller
         $eleve = $inscription->eleve;
         $classe = $inscription->classe;
 
-        // 1️⃣ Supprimer les paiements liés à cet élève
-        $paiements = \App\Models\Paiement::where('eleve_id', $eleveId)->get();
-        if ($paiements->count() > 0) {
-            foreach ($paiements as $paiement) {
-                $paiement->delete();
-            }
-        }
+        // Les données propres à cette année (paiements, notes, résultats,
+        // absences et bourses) sont supprimées par les clés étrangères en cascade.
+        // Nettoyer aussi les anciens paiements qui n'ont pas encore été rattachés
+        // à une inscription, en les limitant strictement à cette classe/année.
+        \App\Models\Paiement::whereNull('inscription_id')
+            ->where('eleve_id', $inscription->eleve_id)
+            ->where('classe_id', $inscription->classe_id)
+            ->where('annee_id', $inscription->annee_id)
+            ->delete();
 
-        // 2️⃣ Supprimer les attributions de bourse si elles existent
-        $attributions = \App\Models\AttributionBourse::where('inscription_id', $inscription->id)->get();
-        if ($attributions->count() > 0) {
-            foreach ($attributions as $attrib) {
-                $attrib->delete();
-            }
-        }
-
-        // 3️⃣ Supprimer l'inscription
         $inscription->delete();
 
         // 4️⃣ Log
         logAction('Retrait élève', "Élève {$eleve->nom} {$eleve->prenom} retiré de la classe {$classe->nom}");
 
-        return back()->with('success', 'Élève retiré de la classe avec toutes ses lignes de paiements et bourses supprimées.');
+        return back()->with('success', 'Élève retiré de la classe. Les données liées à cette inscription annuelle ont été supprimées.');
     }
 
 
@@ -469,5 +592,140 @@ class ClasseController extends Controller
             ->with('success', 'Enseignant retiré de la classe avec succès.');
     }
 
+public function importerEleves(Request $request, $classeId)
+{
+    $request->validate([
+        'classe_source_id' => 'required|exists:classes,id',
+    ]);
 
+    $anneeId = session('annee_id')
+        ?? \App\Models\AnneesScolaire::where('active', 1)->value('id');
+
+
+    $classeDestination = Classe::findOrFail($classeId);
+
+    $classeSource = Classe::findOrFail(
+        $request->classe_source_id
+    );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Récupération des élèves de la classe source
+    |--------------------------------------------------------------------------
+    */
+
+    $eleves = Eleve::whereHas('inscriptions', function ($query) use ($classeSource) {
+
+        $query->where('classe_id', $classeSource->id);
+
+    })->get();
+
+
+    $importes = 0;
+    $existants = 0;
+
+
+    foreach ($eleves as $eleve) {
+
+        /*
+        |--------------------------------------------------------------------------
+        | Vérifier si l'élève est déjà inscrit cette année
+        |--------------------------------------------------------------------------
+        */
+
+        $existe = $eleve->inscriptions()
+            ->where('annee_id', $anneeId)
+            ->exists();
+
+
+        if ($existe) {
+
+            $existants++;
+
+            continue;
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Création de la nouvelle inscription
+        |--------------------------------------------------------------------------
+        */
+
+        $eleve->inscriptions()->create([
+
+            'classe_id' => $classeDestination->id,
+
+            'annee_id' => $anneeId,
+
+        ]);
+
+
+        $importes++;
+    }
+
+
+    return redirect()
+        ->route('elevesshow', $classeDestination->id)
+        ->with(
+            'success',
+            $importes . ' élève(s) importé(s) dans '
+            . $classeDestination->nom
+            . '. '
+            . $existants
+            . ' élève(s) déjà inscrit(s) ont été ignoré(s).'
+        );
+}
+
+public function viderEleves($classeId)
+{
+    $classe = Classe::findOrFail($classeId);
+
+    // Année scolaire active
+    $anneeId = session('annee_id')
+        ?? AnneesScolaire::where('active', 1)->value('id');
+
+    if (!$anneeId) {
+        return back()->with(
+            'error',
+            'Aucune année scolaire active n’a été trouvée.'
+        );
+    }
+
+    // Récupérer les inscriptions de cette classe
+    // pour l'année scolaire active
+    $inscriptions = Inscription::where('classe_id', $classe->id)
+        ->where('annee_id', $anneeId)
+        ->get();
+
+    $nombre = $inscriptions->count();
+
+    if ($nombre === 0) {
+        return back()->with(
+            'warning',
+            "La classe {$classe->nom} ne contient aucun élève."
+        );
+    }
+
+    // Supprimer uniquement les inscriptions
+    // Les élèves restent dans la table eleves
+    Inscription::where('classe_id', $classe->id)
+        ->where('annee_id', $anneeId)
+        ->delete();
+
+    // Journalisation
+    logAction(
+        'Vider classe',
+        "Tous les élèves ont été retirés de la classe {$classe->nom} " .
+        "pour l'année scolaire ID {$anneeId}. Nombre d'élèves retirés : {$nombre}."
+    );
+
+    return redirect()
+        ->route('elevesshow', $classe->id)
+        ->with(
+            'success',
+            "{$nombre} élève(s) ont été retiré(s) de la classe {$classe->nom}."
+        );
+}
 }

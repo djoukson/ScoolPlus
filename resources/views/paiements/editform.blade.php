@@ -11,6 +11,7 @@
                         data-classe_id="{{ $inscription->classe->id }}"
                         data-annee="{{ $inscription->annee->nom }}"
                         data-annee_id="{{ $inscription->annee->id }}"
+                        data-type-inscription="{{ $inscription->type_inscription }}"
                     @selected(old('eleve_id', $paiement->eleve_id) == $inscription->eleve->id)>
                     {{ $inscription->eleve->nom }}
                 </option>
@@ -51,6 +52,9 @@
 </div>
 
 <div id="infos_frais" class="alert alert-info d-none"></div>
+@error('frais_id')
+    <div class="alert alert-danger">{{ $message }}</div>
+@enderror
 
 <div class="row mb-3">
     <div class="col-md-4">
@@ -101,7 +105,20 @@
             document.getElementById("classe_id").value      = option.getAttribute("data-classe_id");
             document.getElementById("annee_display").value  = option.getAttribute("data-annee");
             document.getElementById("annee_id").value       = option.getAttribute("data-annee_id");
+            updateFraisDisponibles(option.getAttribute("data-type-inscription"));
         });
+
+        function updateFraisDisponibles(typeInscription) {
+            const reinscrit = typeInscription === 'Réinscrit';
+            Array.from(fraisSelect.options).forEach(option => {
+                option.disabled = reinscrit && option.textContent.trim() === "Frais d'Inscription";
+            });
+            if (reinscrit && fraisSelect.selectedOptions[0]?.textContent.trim() === "Frais d'Inscription") {
+                fraisSelect.value = '';
+                document.getElementById("infos_frais").classList.add("d-none");
+                inputMontant.value = '';
+            }
+        }
 
         // ⚡ Charger infos frais
         function loadFraisInfo() {
@@ -161,6 +178,10 @@
         });
 
         // ⚡ Charger les infos initiales
+        const selectedOption = eleveSelect.options[eleveSelect.selectedIndex];
+        if (selectedOption && selectedOption.value) {
+            updateFraisDisponibles(selectedOption.getAttribute("data-type-inscription"));
+        }
         loadFraisInfo();
     });
 

@@ -28,8 +28,15 @@
                 <div class="card shadow-sm border-0 text-white" style="background: linear-gradient(135deg, #6f42c1, #8e44ad);">
                     <div class="card-body">
                         @php
-                            $reducInscription = $bourse?->frais->firstWhere('libelle', "Frais d'Inscription")->pivot->pourcentage ?? 0;
+                            $reducInscription = ($typeInscription ?? null) === 'Réinscrit'
+                                ? 0
+                                : ($bourse?->frais->firstWhere('libelle', "Frais d'Inscription")->pivot->pourcentage ?? 0);
                         @endphp
+
+                        @if(($typeInscription ?? null) === 'Réinscrit')
+                            <p class="mb-1"><strong>Type :</strong> Réinscrit</p>
+                            <p class="mb-1 text-warning"><strong>Exonération :</strong> frais d’inscription non dus</p>
+                        @endif
 
                         @if($reducInscription > 0)
                             <p class="mb-1">
@@ -99,7 +106,7 @@
                     </tr>
                     </thead>
                     <tbody>
-                    @forelse($eleve->paiements as $paiement)
+                    @forelse($eleve->paiements->where('annee_id', $anneeActive->id) as $paiement)
                         <tr>
                             <td>{{ $loop->iteration }}</td>
                             <td>{{ $paiement->classe->nom ?? '—' }}</td>

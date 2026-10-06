@@ -270,37 +270,118 @@ class EleveController extends Controller
     }
 
     public function elevesshow(Request $request, $id)
-    {
-        // 1️⃣ Vérifie d'abord si l'utilisateur est connecté
-        if (!auth()->check()) {
-            return redirect()->route('login')->with('error', 'Veuillez vous connecter pour accéder à cette page.');
-        }
-        // 2️⃣ Vérifie si l'utilisateur connecté est admin ou directeur
-        if (!in_array(auth()->user()->role, ['admin', 'directeur','secretaire'])) {
-            return redirect()->back()->with('error', 'Accès refusé. Vous n\'avez pas les autorisations nécessaires.');
-        }
-        $classe = Classe::findOrFail($id);
-        $classess = Classe::all();
-
-        $query = Inscription::with('eleve')->where('classe_id', $id);
-
-        if ($request->filled('search')) {
-            $search = $request->search;
-            $query->whereHas('eleve', function($q) use ($search) {
-                $q->where('nom', 'like', "%$search%")
-                    ->orWhere('prenom', 'like', "%$search%")
-                    ->orWhere('matricule', 'like', "%$search%");
-            });
-        }
-
-        $inscriptions = $query->get();
-        $eleves = $inscriptions->pluck('eleve');
-
-        logAction('Consultation', "Affichage des élèves inscrits dans la classe {$classe->nom} (recherche : {$request->search}).");
-
-        return view('eleves.eleveshow', compact('classe', 'eleves', 'classess'));
+{
+    // 1️⃣ Vérifie d'abord si l'utilisateur est connecté
+    if (!auth()->check()) {
+        return redirect()->route('login')
+            ->with('error', 'Veuillez vous connecter pour accéder à cette page.');
     }
 
+    // 2️⃣ Vérifie les autorisations
+    if (!in_array(auth()->user()->role, ['admin', 'directeur', 'secretaire'])) {
+        return redirect()->back()
+            ->with('error', 'Accès refusé. Vous n\'avez pas les autorisations nécessaires.');
+    }
+
+    // 3️⃣ Récupère la classe actuelle
+    $classe = Classe::findOrFail($id);
+
+    // 4️⃣ Récupère l'année scolaire active
+    $anneeActive = \App\Models\AnneesScolaire::where('active', 1)->first();
+
+    // 5️⃣ Recherche l'année scolaire précédente
+    $anneePrecedente = null;
+
+    if ($anneeActive) {
+        $anneePrecedente = \App\Models\AnneesScolaire::where(
+            'id',
+            '<',
+            $anneeActive->id
+        )
+        ->orderByDesc('id')
+        ->first();
+    }
+
+    // 6️⃣ Récupère uniquement les classes de l'année précédente
+    //    avec leur effectif
+    $classess = collect();
+
+    if ($anneePrecedente) {
+        $classess = Classe::where('annee_id', $anneePrecedente->id)
+            ->withCount([
+                'inscriptions as effectif' => function ($query) use ($anneePrecedente) {
+                    $query->where('annee_id', $anneePrecedente->id);
+                }
+            ])
+            ->orderBy('nom')
+            ->get();
+    }
+
+    // 7️⃣ Récupère les élèves de la classe actuelle
+    $query = Inscription::with('eleve')
+        ->where('classe_id', $id);
+
+    // 8️⃣ Recherche d'un élève
+    if ($request->filled('search')) {
+
+        $search = $request->search;
+
+        $query->whereHas('eleve', function ($q) use ($search) {
+
+            $q->where('nom', 'like', "%{$search}%")
+                ->orWhere('prenom', 'like', "%{$search}%")
+                ->orWhere('matricule', 'like', "%{$search}%");
+        });
+    }
+
+    // 9️⃣ Récupération des inscriptions
+    $inscriptions = $query->get();
+
+    // 🔟 Récupération des élèves
+    $eleves = $inscriptions->map(function ($inscription) {
+        $eleve = $inscription->eleve;
+        if ($eleve) {
+            $eleve->type_inscription = $inscription->type_inscription;
+            $eleve->inscription_id = $inscription->id;
+        }
+        return $eleve;
+    })->filter();
+
+    // 1️⃣1️⃣ Journalisation
+    logAction(
+        'Consultation',
+        "Affichage des élèves inscrits dans la classe {$classe->nom} (recherche : {$request->search})."
+    );
+
+    // 1️⃣2️⃣ Retour vers la vue
+    return view(
+        'eleves.eleveshow',
+        compact(
+            'classe',
+            'eleves',
+            'classess',
+            'anneeActive',
+            'anneePrecedente'
+        )
+    );
+}
+
+    public function updateTypeInscription(Request $request, Inscription $inscription)
+    {
+        $request->validate([
+            'type_inscription' => 'required|in:Nouveau,Réinscrit',
+            'classe_id' => 'required|exists:classes,id',
+        ]);
+
+        if ((int) $inscription->classe_id !== (int) $request->classe_id) {
+            abort(403);
+        }
+
+        $inscription->update(['type_inscription' => $request->type_inscription]);
+
+        return redirect()->route('elevesshow', $inscription->classe_id)
+            ->with('success', 'Type d’inscription modifié avec succès.');
+    }
     public function profil($id)
     {
         $eleve = Eleve::with(['classeActuelle.classe', 'parent'])->findOrFail($id);

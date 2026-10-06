@@ -19,6 +19,8 @@ class HomeController extends Controller
 {
     public function index()
     {
+
+
         // 1️⃣ Vérifie d'abord si l'utilisateur est connecté
         if (!auth()->check()) {
             return redirect()->route('login')->with('error', 'Veuillez vous connecter pour accéder à cette page.');
@@ -28,7 +30,14 @@ class HomeController extends Controller
             ? AnneesScolaire::find(session('annee_id'))
             : AnneesScolaire::where('active', 1)->first();
 
+
+            if (auth()->user()->role === 'parent') {
+    return $this->parentDashboard($anneeActive);
+}
+
         $anneeId = $anneeActive ? $anneeActive->id : null;
+
+
 
         // 🔸 Initialisation
         $totalPayeScolarite = $totalPayeInscription = 0;
@@ -81,9 +90,14 @@ class HomeController extends Controller
                         ->where('annee_id', $anneeId)
                         ->value('montant') ?? 0;
 
+                    $nouveaux = Inscription::where('classe_id', $classe->id)
+                        ->where('annee_id', $anneeId)
+                        ->where('type_inscription', 'Nouveau')
+                        ->count();
+
                     // Totaux pour la classe (nombre d’élèves * montant unitaire)
                     $previsionClasseScolarite = $classe->effectif * $montantScolarite;
-                    $previsionClasseInscription = $classe->effectif * $montantInscription;
+                    $previsionClasseInscription = $nouveaux * $montantInscription;
 //dd($montantInscription);
                     return [
                         'classe' => $classe->nom,
@@ -126,8 +140,7 @@ class HomeController extends Controller
             ->count() : 0;
 
         // Statistiques globales
-        $classes = $anneeId
-            ? Classe::where('annee_id', $anneeId)-> count() : 0;
+       $totalClasses = $anneeId ? Classe::where('annee_id', $anneeId)->count() : 0;
 
         $professeurs = Enseignant::count();
 
@@ -181,9 +194,9 @@ class HomeController extends Controller
         $totalclassesyear = null;
         if ($anneeId) {
 
-            $classes = Classe::where('annee_id', $anneeId)->get();
+           $classesPourFrais = Classe::where('annee_id', $anneeId)->get();
 
-            foreach ($classes as $classe) {
+    foreach ($classesPourFrais as $classe) {
 
                 // Vérifie la présence des deux types de frais avec la bonne casse
                 $fraisScolarite = MontantFrais::where('classe_id', $classe->id)
@@ -257,7 +270,7 @@ class HomeController extends Controller
 
 
         return view('dashboard', compact(
-            'totalEleves','garcons','filles','classes','professeurs','nouveaux','anneeActive','inscrits','nonInscrits','totalPayeScolarite',
+            'totalEleves','garcons','filles','totalClasses','professeurs','nouveaux','anneeActive','inscrits','nonInscrits','totalPayeScolarite',
             'totalPayeInscription',
             'previsionScolarite',
             'previsionInscription',
@@ -273,5 +286,127 @@ class HomeController extends Controller
             'totalclassesyear',
             'inscritsLycee',
         ));
+
+
+
     }
+   private function parentDashboard($anneeActive)
+{
+    $user    = auth()->user();
+    $anneeId = $anneeActive?->id;
+
+    // Enfants du parent + inscription de l'année active (avec classe et niveau)
+    $enfants = $user->enfants()
+        ->with(['inscriptions' => function ($q) use ($anneeId) {
+            $q->where('annee_id', $anneeId)->with('classe.niveau');
+        }])
+        ->get();
+
+    $enfantsData = $enfants->map(function ($eleve) use ($anneeId) {
+
+        $inscription = $eleve->inscriptions->first();
+        $classe      = $inscription?->classe;
+
+        // Montant prévu = somme des frais définis pour la classe cette année
+        $prevu = ($classe && $anneeId)
+            ? (float) \App\Models\MontantFrais::with('frais')
+                ->where('classe_id', $classe->id)
+                ->where('annee_id', $anneeId)
+                ->get()
+                ->reject(fn($montant) => $inscription?->isReinscrit() && $montant->frais?->libelle === "Frais d'Inscription")
+                ->sum('montant')
+            : 0;
+
+        // Montant payé pour cet élève cette année
+        // ⚠️ suppose la colonne paiements.eleve_id — adapte si besoin
+        $paye = $anneeId
+            ? (float) \App\Models\Paiement::where('eleve_id', $eleve->id)
+                ->where('annee_id', $anneeId)
+                ->sum('montant_paye')
+            : 0;
+
+        return [
+            'id'       => $eleve->id,
+            'nom'      => $eleve->nom,
+            'prenom'   => $eleve->prenom,
+            'classe'   => $classe?->nom,
+            'niveau'   => $classe?->niveau?->nom,
+            'inscrit'  => (bool) $inscription,
+            'prevu'    => $prevu,
+            'paye'     => $paye,
+            'reste'    => max(0, $prevu - $paye),
+            // null = frais non définis (évite d'afficher 0 % trompeur)
+            'taux'     => $prevu > 0 ? min(100, (int) round(($paye / $prevu) * 100)) : null,
+            'absences' => $this->countAbsencesEleve($eleve->id),
+        ];
+    });
+
+    $totalPrevu = $enfantsData->sum('prevu');
+    $totalPaye  = $enfantsData->sum('paye');
+    $totalReste = $enfantsData->sum('reste');
+    $tauxGlobal = $totalPrevu > 0 ? min(100, (int) round(($totalPaye / $totalPrevu) * 100)) : null;
+
+    // Notifications récentes non lues
+    $notificationsRecentes = \App\Models\Notification::where(function ($q) use ($user) {
+            $q->whereNull('user_id')->orWhere('user_id', $user->id);
+        })
+        ->where('is_read', 0)
+        ->latest()
+        ->take(4)
+        ->get();
+
+    return view('dashboard', [
+        'anneeActive'           => $anneeActive,
+        'enfantsData'           => $enfantsData,
+        'totalPrevu'            => $totalPrevu,
+        'totalPaye'             => $totalPaye,
+        'totalReste'            => $totalReste,
+        'tauxGlobal'            => $tauxGlobal,
+        'messagesNonLus'        => $this->countMessagesNonLus($user->id),
+        'notificationsRecentes' => $notificationsRecentes,
+    ]);
+}
+
+/**
+ * Nombre de conversations contenant au moins un message non lu.
+ * ⚠️ Tables supposées : conversation_participants / messages (comme dans la navbar).
+ */
+private function countMessagesNonLus(int $userId): int
+{
+    try {
+        return \Illuminate\Support\Facades\DB::table('conversation_participants as cp')
+            ->where('cp.user_id', $userId)
+            ->whereExists(function ($q) use ($userId) {
+                $q->select(\Illuminate\Support\Facades\DB::raw(1))
+                  ->from('messages as m')
+                  ->whereColumn('m.conversation_id', 'cp.conversation_id')
+                  ->where('m.sender_id', '!=', $userId)
+                  ->where(function ($w) {
+                      $w->whereNull('cp.last_read_at')
+                        ->orWhereColumn('m.created_at', '>', 'cp.last_read_at');
+                  });
+            })
+            ->count();
+    } catch (\Throwable $e) {
+        return 0;
+    }
+}
+
+/**
+ * Nombre d'absences d'un élève.
+ * ⚠️ Suppose un modèle App\Models\Absence avec la colonne eleve_id.
+ *    Ajoute ici un filtre sur l'année scolaire / la période si ta table le permet.
+ */
+private function countAbsencesEleve(int $eleveId): int
+{
+    try {
+        if (!class_exists(\App\Models\Absence::class)) {
+            return 0;
+        }
+
+        return \App\Models\Absence::where('eleve_id', $eleveId)->count();
+    } catch (\Throwable $e) {
+        return 0;
+    }
+}
 }

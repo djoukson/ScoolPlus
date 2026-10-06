@@ -11,6 +11,7 @@ class Paiement extends Model
 protected $table = 'paiements';
     protected $fillable = [
         'eleve_id',
+        'inscription_id',
         'annee_id',
         'classe_id',
         'frais_id',
@@ -41,8 +42,6 @@ protected $table = 'paiements';
     // 🔹 Relation vers l'inscription
     public function inscription()
     {
-        return $this->belongsTo(Inscription::class, 'eleve_id', 'eleve_id')
-            ->whereColumn('classe_id', 'paiements.classe_id')
-            ->whereColumn('annee_id', 'paiements.annee_id');
+        return $this->belongsTo(Inscription::class, 'inscription_id');
     }
 }

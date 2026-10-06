@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\AnneesScolaire;
 
 class Inscription extends Model
 {
@@ -13,12 +14,38 @@ class Inscription extends Model
         'classe_id',
         'annee_id',
         'date_inscription',
+        'type_inscription',
         'status_eleve',
     ];
 
     protected $casts = [
         'date_inscription' => 'date',
     ];
+
+    public function isReinscrit(): bool
+    {
+        return $this->type_inscription === 'Réinscrit';
+    }
+
+    protected static function booted(): void
+    {
+        static::creating(function (Inscription $inscription) {
+            if (!empty($inscription->type_inscription) || empty($inscription->annee_id) || empty($inscription->eleve_id)) {
+                return;
+            }
+
+            $anneePrecedente = AnneesScolaire::where('id', '<', $inscription->annee_id)
+                ->orderByDesc('id')
+                ->first();
+
+            $inscription->type_inscription = $anneePrecedente
+                && static::where('eleve_id', $inscription->eleve_id)
+                    ->where('annee_id', $anneePrecedente->id)
+                    ->exists()
+                    ? 'Réinscrit'
+                    : 'Nouveau';
+        });
+    }
 
     // 🔗 Relation avec Élève
     public function eleve()

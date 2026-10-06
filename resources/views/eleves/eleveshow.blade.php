@@ -16,6 +16,14 @@
                 <button class="btn btn-primary me-2" data-toggle="modal" data-target="#affecterElevesModal">
                     👥 Affecter élèves
                 </button>
+                <button class="btn btn-primary me-2" data-toggle="modal" data-target="#importerElevesModal">
+                    📥 Importer / Affecter élèves
+                </button>
+                <button class="btn btn-danger me-2"
+                        data-toggle="modal"
+                        data-target="#viderClasseModal">
+                    🗑️ Vider la classe
+                </button>
                 <div class="btn-group">
                     <button type="button" class="btn btn-secondary dropdown-toggle"
                             data-toggle="dropdown" aria-expanded="false"
@@ -107,11 +115,39 @@
                             <td>{{ $eleve->tuteur_nom .' - '. $eleve->tuteur_tel }}</td>
                             <td>{{ $eleve->adresse }}</td>
                             <td>
+                                <div class="dropdown">
+                                    <button class="btn btn-secondary btn-sm dropdown-toggle" type="button"
+                                            id="actionsEleve{{ $eleve->id }}" data-toggle="dropdown" aria-expanded="false">
+                                        <i class="fas fa-cogs me-1"></i> Actions
+                                    </button>
+                                    <ul class="dropdown-menu dropdown-menu-right" aria-labelledby="actionsEleve{{ $eleve->id }}">
+                                        <li class="dropdown-header">Type d’inscription</li>
+                                        @foreach(['Nouveau', 'Réinscrit'] as $typeInscription)
+                                            <li>
+                                                <form method="POST" action="{{ route('inscriptions.type.update', $eleve->inscription_id) }}">
+                                                    @csrf
+                                                    @method('PATCH')
+                                                    <input type="hidden" name="classe_id" value="{{ $classe->id }}">
+                                                    <input type="hidden" name="type_inscription" value="{{ $typeInscription }}">
+                                                    <button type="submit" class="dropdown-item {{ $eleve->type_inscription === $typeInscription ? 'active' : '' }}">
+                                                        <i class="fas {{ $typeInscription === 'Nouveau' ? 'fa-user-plus' : 'fa-user-check' }} me-2"></i>
+                                                        {{ $typeInscription }}
+                                                        @if($eleve->type_inscription === $typeInscription)
+                                                            <i class="fas fa-check ml-2"></i>
+                                                        @endif
+                                                    </button>
+                                                </form>
+                                            </li>
+                                        @endforeach
+                                        <li><div class="dropdown-divider"></div></li>
+                                        <li>
+                                            <button type="button" class="dropdown-item text-danger" data-toggle="modal" data-target="#confirmRetraitModal{{ $eleve->id }}">
+                                                <i class="fas fa-user-minus me-2"></i> Retirer de la classe
+                                            </button>
+                                        </li>
+                                    </ul>
+                                </div>
 {{--                                <a href="{{ route('eleves.show', $eleve->id) }}" class="btn btn-sm btn-info">👀</a>--}}
-                                <!-- Bouton qui ouvre le modal -->
-                                <button type="button" class="btn btn-sm btn-danger" data-toggle="modal" data-target="#confirmRetraitModal{{ $eleve->id }}">
-                                    <i class="fas fa-user-minus"></i>
-                                </button>
 
                             </td>
                         </tr>
@@ -322,7 +358,418 @@
             </form>
         </div>
     </div>
+{{-- ========================================================= --}}
+{{-- MODAL IMPORT / AFFECTATION DES ÉLÈVES --}}
+{{-- ========================================================= --}}
 
+<div class="modal fade" id="importerElevesModal"
+     tabindex="-1"
+     aria-labelledby="importerElevesModalLabel"
+     aria-hidden="true">
+
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+
+        <div class="modal-content border-0 shadow-lg rounded-4">
+
+            {{-- HEADER --}}
+            <div class="modal-header text-white"
+                 style="background: linear-gradient(90deg, #0d6efd, #0dcaf0);">
+
+                <div>
+                    <h5 class="modal-title mb-1" id="importerElevesModalLabel">
+                        📥 Importer les élèves
+                    </h5>
+
+                    <small>
+                        Affectation vers :
+                        <strong>{{ $classe->nom }}</strong>
+                    </small>
+                </div>
+
+                <button type="button"
+                        class="btn-close btn-close-white"
+                        data-dismiss="modal">
+                </button>
+
+            </div>
+
+
+            {{-- BODY --}}
+            <div class="modal-body">
+
+                {{-- ================================================= --}}
+                {{-- CHOIX DE LA MÉTHODE --}}
+                {{-- ================================================= --}}
+
+                <div class="row mb-4">
+
+                    <div class="col-md-10">
+
+                        <div class="import-method-card active"
+                             id="methodClassCard"
+                             onclick="showImportMethod('class')">
+
+                            <div class="method-icon">
+                                📚
+                            </div>
+
+                            <div>
+                                <h6>Importer depuis une classe</h6>
+
+                                <small class="text-muted">
+                                    Réutiliser les élèves d'une classe d'une
+                                    autre année scolaire.
+                                </small>
+                            </div>
+
+                        </div>
+
+                    </div>
+
+
+                   <!-- <div class="col-md-6">
+
+                        <div class="import-method-card"
+                             id="methodTextCard"
+                             onclick="showImportMethod('text')">
+
+                            <div class="method-icon">
+                                📝
+                            </div>
+
+                            <div>
+                                <h6>Coller une liste</h6>
+
+                                <small class="text-muted">
+                                    Coller rapidement les matricules des élèves.
+                                </small>
+                            </div>
+
+                        </div>
+
+                    </div>-->
+
+                </div>
+
+
+                {{-- ================================================= --}}
+                {{-- MÉTHODE 1 : CLASSE SOURCE --}}
+                {{-- ================================================= --}}
+
+                <div id="importClassSection">
+
+                    <div class="alert alert-info border-0">
+
+                        <strong>💡 Import rapide</strong>
+
+                        <br>
+
+                        Sélectionne une ancienne classe.
+                        SchoolPlus retrouvera automatiquement les élèves
+                        inscrits dans cette classe.
+
+                    </div>
+
+
+                    <form id="importClassForm"
+                          method="POST"
+                          action="{{ route('classes.importerEleves', $classe->id) }}">
+
+                        @csrf
+
+
+                        <div class="row align-items-end">
+
+                            <div class="col-md-8">
+
+                                <label class="form-label fw-bold">
+                                    Classe source
+                                </label>
+
+                                <select name="classe_source_id"
+        id="classe_source_id"
+        class="form-control"
+        required>
+
+    <option value="">
+        -- Sélectionner une classe de l'année précédente --
+    </option>
+
+    @foreach($classess as $classeSource)
+
+        <option value="{{ $classeSource->id }}">
+            {{ $classeSource->nom }}
+            ({{ $classeSource->effectif }} élèves)
+        </option>
+
+    @endforeach
+
+</select>
+
+                            </div>
+
+
+                            <div class="col-md-4">
+
+                                <button type="submit"
+                                        class="btn btn-primary w-100">
+
+                                    📥 Importer toute la classe
+
+                                </button>
+
+                            </div>
+
+                        </div>
+
+                    </form>
+
+
+                    <hr class="my-4">
+
+
+                    <div class="text-muted small">
+
+                        ⚠️ Les élèves déjà inscrits dans
+                        <strong>{{ $classe->nom }}</strong>
+                        pour l'année scolaire active seront automatiquement
+                        ignorés.
+
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+{{-- ========================================================= --}}
+{{-- MODAL VIDER LA CLASSE --}}
+{{-- ========================================================= --}}
+
+<div class="modal fade"
+     id="viderClasseModal"
+     tabindex="-1"
+     aria-labelledby="viderClasseModalLabel"
+     aria-hidden="true">
+
+    <div class="modal-dialog modal-dialog-centered">
+
+        <div class="modal-content border-0 shadow-lg">
+
+            {{-- HEADER --}}
+            <div class="modal-header bg-danger text-white">
+
+                <h5 class="modal-title" id="viderClasseModalLabel">
+                    <i class="fas fa-exclamation-triangle mr-2"></i>
+                    Vider la classe
+                </h5>
+
+                <button type="button"
+                        class="close text-white"
+                        data-dismiss="modal"
+                        aria-label="Fermer">
+
+                    <span aria-hidden="true">&times;</span>
+
+                </button>
+
+            </div>
+
+            {{-- BODY --}}
+            <div class="modal-body">
+
+                <div class="alert alert-warning">
+
+                    <strong>⚠️ Attention !</strong>
+
+                    <p class="mb-0 mt-2">
+                        Vous êtes sur le point de retirer tous les élèves
+                        de la classe :
+                    </p>
+
+                    <h5 class="mt-2 text-danger">
+                        {{ $classe->nom }}
+                    </h5>
+
+                </div>
+
+                <p>
+                    Cette opération va supprimer les
+                    <strong>inscriptions des élèves dans cette classe</strong>
+                    pour l'année scolaire concernée.
+                </p>
+
+                <p class="text-muted mb-0">
+                    Les élèves eux-mêmes ne seront pas supprimés de SchoolPlus.
+                    Ils pourront être réaffectés ultérieurement à une autre classe.
+                </p>
+
+            </div>
+
+            {{-- FOOTER --}}
+            <div class="modal-footer">
+
+                <button type="button"
+                        class="btn btn-secondary"
+                        data-dismiss="modal">
+
+                    ❌ Annuler
+
+                </button>
+
+                <form action="{{ route('classes.viderEleves', $classe->id) }}"
+                      method="POST">
+
+                    @csrf
+                    @method('DELETE')
+
+                    <button type="submit"
+                            class="btn btn-danger">
+
+                        🗑️ Oui, vider la classe
+
+                    </button>
+
+                </form>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+<style>
+
+    /* ================================ */
+    /* CARTES CHOIX IMPORT */
+    /* ================================ */
+
+    .import-method-card {
+
+        display: flex;
+        align-items: center;
+
+        gap: 15px;
+
+        padding: 18px;
+
+        border: 2px solid #e9ecef;
+
+        border-radius: 12px;
+
+        cursor: pointer;
+
+        transition: all .2s ease;
+
+        background: #fff;
+
+    }
+
+
+    .import-method-card:hover {
+
+        border-color: #0d6efd;
+
+        background: #f8fbff;
+
+        transform: translateY(-2px);
+
+    }
+
+
+    .import-method-card.active {
+
+        border-color: #0d6efd;
+
+        background: #f0f7ff;
+
+        box-shadow: 0 4px 12px rgba(13,110,253,.12);
+
+    }
+
+
+    .method-icon {
+
+        width: 50px;
+
+        height: 50px;
+
+        border-radius: 50%;
+
+        display: flex;
+
+        align-items: center;
+
+        justify-content: center;
+
+        background: #e7f1ff;
+
+        font-size: 23px;
+
+    }
+
+
+    .import-method-card h6 {
+
+        margin: 0 0 4px 0;
+
+        font-weight: 700;
+
+    }
+
+
+    /* ================================ */
+    /* TEXTAREA */
+    /* ================================ */
+
+    .import-textarea {
+
+        font-family: monospace;
+
+        font-size: 15px;
+
+        line-height: 1.7;
+
+        border-radius: 10px;
+
+        padding: 15px;
+
+        background: #f8f9fa;
+
+        resize: vertical;
+
+    }
+
+
+    .import-textarea:focus {
+
+        background: #fff;
+
+        border-color: #0d6efd;
+
+        box-shadow: 0 0 0 .2rem rgba(13,110,253,.12);
+
+    }
+
+
+    /* ================================ */
+    /* RESULTAT IMPORT */
+    /* ================================ */
+
+    .import-result-table {
+
+        max-height: 300px;
+
+        overflow-y: auto;
+
+    }
+
+</style>
     {{-- Script recherche + toggle --}}
     <script>
         // Recherche en live
@@ -360,8 +807,14 @@
     <style>
         .table-hover tbody tr:hover {
             background-color: #f1f7ff;
-            transform: scale(1.01);
-            transition: all 0.2s ease-in-out;
+            transition: background-color 0.2s ease-in-out;
+        }
+
+        .table .dropdown-menu {
+            z-index: 1050;
+            background-color: #fff;
+            opacity: 1;
+            box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
         }
     </style>
 
@@ -373,4 +826,35 @@
             });
         </script>
     @endif
+    <script>
+
+function showImportMethod(method)
+{
+    const classSection = document.getElementById('importClassSection');
+    const textSection  = document.getElementById('importTextSection');
+
+    const classCard = document.getElementById('methodClassCard');
+    const textCard  = document.getElementById('methodTextCard');
+
+
+    if (method === 'class') {
+
+        classSection.style.display = 'block';
+        textSection.style.display = 'none';
+
+        classCard.classList.add('active');
+        textCard.classList.remove('active');
+
+    } else {
+
+        classSection.style.display = 'none';
+        textSection.style.display = 'block';
+
+        classCard.classList.remove('active');
+        textCard.classList.add('active');
+
+    }
+}
+
+</script>
 @endsection

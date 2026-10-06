@@ -60,6 +60,7 @@
                             </a>
                         </th>
                         <th>Année</th>
+                        <th>Inscription</th>
                         <th>Bourse</th>
                         <th>Total payé</th>
                         <th>Restant</th>
@@ -73,6 +74,13 @@
                             <td>{{ $item['eleve']->nom }} {{ $item['eleve']->prenom }}</td>
                             <td>{{ $item['classe']->nom }}</td>
                             <td>{{ $item['annee']->nom }}</td>
+                            <td>
+                                @if(($item['type_inscription'] ?? 'Nouveau') === 'Réinscrit')
+                                    <span class="badge bg-secondary">Réinscrit · inscription exonérée</span>
+                                @else
+                                    <span class="badge bg-primary">Nouveau</span>
+                                @endif
+                            </td>
 
                             {{-- 🔹 Bourse --}}
                             <td>
@@ -114,7 +122,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="8" class="text-center py-4 text-muted">
+                            <td colspan="9" class="text-center py-4 text-muted">
                                 Aucun paiement enregistré.
                             </td>
                         </tr>

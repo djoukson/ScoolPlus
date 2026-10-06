@@ -10,6 +10,7 @@
                         data-classe_id="{{ $inscription->classe->id }}"
                         data-annee="{{ $inscription->annee->nom }}"
                         data-annee_id="{{ $inscription->annee->id }}"
+                        data-type-inscription="{{ $inscription->type_inscription }}"
                     @selected(old('eleve_id', $paiement->eleve_id ?? '') == $inscription->eleve->id)>
                     {{ $inscription->eleve->nom }} {{ $inscription->eleve->prenom }}
                 </option>
@@ -49,6 +50,9 @@
 </div>
 
 <div id="infos_frais" class="alert alert-info d-none"></div>
+@error('frais_id')
+    <div class="alert alert-danger">{{ $message }}</div>
+@enderror
 
 <div class="row mb-3">
     <div class="col-md-4">
@@ -108,11 +112,26 @@
                 document.getElementById("classe_id").value      = option.dataset.classe_id;
                 document.getElementById("annee_display").value  = option.dataset.annee;
                 document.getElementById("annee_id").value       = option.dataset.annee_id;
+                updateFraisDisponibles(option.dataset.typeInscription);
             } else {
                 document.getElementById("classe_display").value = '';
                 document.getElementById("classe_id").value      = '';
                 document.getElementById("annee_display").value  = '-';
                 document.getElementById("annee_id").value       = '';
+                updateFraisDisponibles('Nouveau');
+            }
+        }
+
+        function updateFraisDisponibles(typeInscription) {
+            const reinscrit = typeInscription === 'Réinscrit';
+            Array.from(fraisSelect.options).forEach(option => {
+                const fraisInscription = option.textContent.trim() === "Frais d'Inscription";
+                option.disabled = reinscrit && fraisInscription;
+            });
+            if (reinscrit && fraisSelect.selectedOptions[0]?.textContent.trim() === "Frais d'Inscription") {
+                fraisSelect.value = '';
+                document.getElementById("infos_frais").classList.add("d-none");
+                inputMontant.value = '';
             }
         }
 
@@ -142,6 +161,7 @@
                         div.classList.remove("d-none");
                         div.innerHTML = `
                                 <strong>${data.frais}</strong><br>
+                                ${data.exonere ? '<strong class="text-warning">Frais non dus : élève réinscrit</strong><br>' : ''}
                                 Montant total : ${montantTotal} FCFA<br>
                                 Réduction bourse : <span class="text-warning">${reduction} FCFA</span><br>
                                 Déjà payé : <span class="text-success">${dejaPaye} FCFA</span><br>
